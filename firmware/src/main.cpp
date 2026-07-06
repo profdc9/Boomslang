@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "soc/gpio_reg.h"
 #include "soc/soc.h"
 #include "config.h"
@@ -20,7 +22,16 @@ ChannelState channels[NUM_CHANNELS];
 // after re-checking the hardware line is actually clear.
 volatile bool faultLatched = false;
 bool faultLatchedPrev = false;       // loop()-only, for edge detection
+
+// Written only by faultSampleTask, read by loop()/web handlers for display.
+// Not lock-protected: this is best-effort diagnostic telemetry, not part of
+// the safety path, so a rare torn read showing a stale/half-updated value is
+// an acceptable tradeoff against the complexity of synchronizing it.
+volatile bool faultSnapshotReady = false;
+uint32_t faultSnapshotAtMs = 0;
 float faultSnapshotA[NUM_CHANNELS] = {0, 0, 0};
+
+TaskHandle_t faultSampleTaskHandle = nullptr;
 
 // GPIO16/17/18 are all < 32, so a single write-1-to-set register write
 // forces all three trigger outputs HIGH atomically.
@@ -28,20 +39,62 @@ constexpr uint32_t TRIGGER_PIN_MASK =
     (1u << PIN_TRIGGER[0]) | (1u << PIN_TRIGGER[1]) | (1u << PIN_TRIGGER[2]);
 
 // Runs at interrupt level, IRAM-resident: no Serial, no heap/String, no
-// calls into anything not IRAM-safe. The hardware's own analog protection
-// (per-channel gate pulldown transistors) has already started cutting
-// current before this even runs; this ISR's job is forcing every channel
-// off in software (the shared FAULT line can't say which one faulted) and
-// stopping any retry until a human clears it.
+// calls into anything not IRAM-safe. In particular, analogRead() is NOT
+// callable here — the ESP-IDF ADC driver takes a FreeRTOS mutex internally,
+// and loop() is already calling it every iteration to refresh the current
+// readings, so this ISR could easily fire while that lock is held elsewhere.
+// Taking a lock from ISR context that way is undefined behavior.
+//
+// So: the two time-critical jobs (force every trigger off, latch the fault)
+// happen right here, register-level. Sampling SENSE for diagnostics is
+// handed off to a dedicated high-priority task via a notification — that
+// task runs in normal FreeRTOS task context, where analogRead() is legal,
+// and portYIELD_FROM_ISR ensures the scheduler switches to it the instant
+// this ISR returns, ahead of loop() or anything else of lower priority.
 void IRAM_ATTR onFaultISR() {
+#if DEBUG_FAULT_TIMING
+  // Marks ISR entry, essentially coincident with the FAULT edge itself —
+  // scope this pin against FAULT to read off interrupt-latency directly.
+  REG_WRITE(GPIO_OUT_W1TS_REG, 1u << PIN_DEBUG_TIMING);
+#endif
+
   REG_WRITE(GPIO_OUT_W1TS_REG, TRIGGER_PIN_MASK);
   faultLatched = true;
+
+  BaseType_t higherPriorityTaskWoken = pdFALSE;
+  vTaskNotifyGiveFromISR(faultSampleTaskHandle, &higherPriorityTaskWoken);
+  portYIELD_FROM_ISR(higherPriorityTaskWoken);
 }
 
 float readCurrentA(int ch) {
   int raw = analogRead(PIN_SENSE[ch]);
   float v = (raw / (float)ADC_MAX) * ADC_VREF;
   return v / SENSE_OHMS;
+}
+
+// Blocked on a task notification the rest of the time; woken by onFaultISR()
+// to sample all three current-sense channels as close to the fault event as
+// this platform can safely get. This is a diagnostic best-effort capture,
+// not a safety mechanism — the trigger shutoff already happened in the ISR
+// before this task even gets scheduled, and the true peak current may still
+// have decayed somewhat by the time this runs, depending on how fast the
+// hardware's own analog protection (Q5/Q10/Q16) and the igniter loop's
+// inductance let it fall.
+void faultSampleTask(void *) {
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+      faultSnapshotA[i] = readCurrentA(i);
+    }
+    faultSnapshotAtMs = millis();
+    faultSnapshotReady = true;
+#if DEBUG_FAULT_TIMING
+    // Falling edge marks "all three SENSE channels sampled" — the gap
+    // between this and the onFaultISR rising edge is the real number to
+    // measure once there's hardware to scope it on.
+    digitalWrite(PIN_DEBUG_TIMING, LOW);
+#endif
+  }
 }
 
 bool isArmed() {
@@ -73,6 +126,14 @@ void buildStatusJson(String &out) {
   out += (isArmed() ? "true" : "false");
   out += ",\"fault\":";
   out += (faultLatched ? "true" : "false");
+  out += ",\"fault_snapshot_valid\":";
+  out += (faultSnapshotReady ? "true" : "false");
+  out += ",\"fault_snapshot_a\":[";
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    if (i) out += ",";
+    out += String(faultSnapshotA[i], 3);
+  }
+  out += "]";
   out += ",\"channels\":[";
   for (int i = 0; i < NUM_CHANNELS; i++) {
     if (i) out += ",";
@@ -139,6 +200,7 @@ void handleClearFault() {
   noInterrupts();
   faultLatched = false;
   interrupts();
+  faultSnapshotReady = false;  // old snapshot belongs to the fault we just cleared
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -167,7 +229,21 @@ void setup() {
   }
   pinMode(PIN_SENSE_FAILSAFE, INPUT_PULLDOWN);
 
+#if DEBUG_FAULT_TIMING
+  pinMode(PIN_DEBUG_TIMING, OUTPUT);
+  digitalWrite(PIN_DEBUG_TIMING, LOW);
+#endif
+
   analogReadResolution(12);
+
+  // Must exist before the ISR can notify it. Pinned to core 0, opposite the
+  // Arduino loop/WebServer work (core 1 by default), so it doesn't have to
+  // wait behind whatever loop() is doing when the fault fires. Priority 20
+  // sits comfortably above loopTask (1) so it preempts immediately, while
+  // staying below the WiFi driver's own internal tasks (~22-23) so it can't
+  // interfere with radio timing.
+  xTaskCreatePinnedToCore(faultSampleTask, "faultSample", 2048, nullptr, 20,
+                           &faultSampleTaskHandle, 0);
 
   // Latch immediately if a fault is already present at boot (e.g. a short
   // left in place across a reset), then attach the interrupt for anything
@@ -213,17 +289,22 @@ void loop() {
   if (!faultLatched && digitalRead(PIN_FAULT) == LOW) faultLatched = true;
 
   // On the transition into a fault: nothing should still claim to be
-  // "firing" since the ISR already forced every trigger pin high, and grab
-  // a best-effort current snapshot for diagnostics (the hardware may have
-  // already cut current before this read happens - it's a hint, not a
-  // reliable identification of which channel faulted).
+  // "firing" since the ISR already forced every trigger pin high.
   if (faultLatched && !faultLatchedPrev) {
-    for (int i = 0; i < NUM_CHANNELS; i++) {
-      channels[i].fireActive = false;
-      faultSnapshotA[i] = readCurrentA(i);
-    }
-    Serial.printf("[fault] latched at t=%lu ms, sense snapshot: %.2fA %.2fA %.2fA\n",
-                  (unsigned long)now, faultSnapshotA[0], faultSnapshotA[1], faultSnapshotA[2]);
+    for (int i = 0; i < NUM_CHANNELS; i++) channels[i].fireActive = false;
+    Serial.printf("[fault] latched at t=%lu ms\n", (unsigned long)now);
   }
   faultLatchedPrev = faultLatched;
+
+  // Log the fault-sample task's snapshot once, the first loop() iteration
+  // after it becomes available (it may still be a few loop iterations
+  // before this runs, but faultSampleTask has already captured the reading
+  // as close to the fault event as this platform allows — this is just
+  // reporting it out over Serial).
+  static uint32_t lastLoggedSnapshotAtMs = 0;
+  if (faultSnapshotReady && faultSnapshotAtMs != lastLoggedSnapshotAtMs) {
+    Serial.printf("[fault] sense snapshot @ t=%lu ms: %.2fA %.2fA %.2fA\n",
+                  (unsigned long)faultSnapshotAtMs, faultSnapshotA[0], faultSnapshotA[1], faultSnapshotA[2]);
+    lastLoggedSnapshotAtMs = faultSnapshotAtMs;
+  }
 }

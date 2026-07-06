@@ -49,6 +49,10 @@ async function refresh() {
   if (r.fault) {
     banner.className = 'banner fault';
     banner.textContent = 'FAULT — overcurrent detected on at least one channel';
+    if (r.fault_snapshot_valid) {
+      const s = r.fault_snapshot_a;
+      banner.textContent += ` (sense snapshot: ${s[0].toFixed(2)}A ${s[1].toFixed(2)}A ${s[2].toFixed(2)}A)`;
+    }
   } else if (r.armed) {
     banner.className = 'banner armed';
     banner.textContent = 'ARMED';

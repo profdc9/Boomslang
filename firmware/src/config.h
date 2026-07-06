@@ -43,3 +43,12 @@ constexpr uint32_t FIRE_PULSE_MS = 500;
 // using this at an actual field/range.
 constexpr char AP_SSID[]     = "Boomslang";
 constexpr char AP_PASSWORD[] = "firework123";
+
+// Debug timing instrumentation: toggles PIN_DEBUG_TIMING high as the first
+// thing onFaultISR() does and low once faultSampleTask finishes reading all
+// three SENSE channels. Put a scope or logic analyzer on this pin alongside
+// FAULT to measure real end-to-end latency on actual hardware. Set to 0 for
+// a field build — it's harmless left on (one extra register write in the
+// ISR, negligible), but there's no reason to carry it once timing is known.
+#define DEBUG_FAULT_TIMING 1
+constexpr int PIN_DEBUG_TIMING = 2;  // spare header pin, unconnected on the PCB
