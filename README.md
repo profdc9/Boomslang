@@ -215,18 +215,21 @@ settings to arm anyway regardless of voltage (e.g. bench testing on a
 supply that's intentionally below threshold) while keeping the warning
 display active.
 
-**Scope limitation — no debounce on the voltage check itself.** Unlike
-`SENSEFAILSAFE` (50ms debounce before the arm state machine acts on it),
-`battery_v` is a single raw ADC sample checked fresh on every `loop()`
-iteration, with no averaging or hysteresis. Two consequences worth knowing:
+**Debounce and hysteresis** on the voltage check itself (`arm_state.cpp`),
+addressing two failure modes a single raw comparison would otherwise have:
 
-- A reading oscillating right at the threshold (ADC noise, supply ripple)
-  can flap the lockout in and out rather than settling — normal debounce
-  logic just isn't there for this check.
-- Firing an igniter draws real current through the same 12V rail being
-  sensed. If that momentary load sag dips `battery_v` under threshold right
-  as a channel fires, the lockout can force a disarm — aborting the
-  in-flight sequence — because of the firing event's *own* transient, not
-  an actual low battery. Set `lowBatteryThresholdV` with real headroom
-  below your pack's worst-case voltage under load, not just its resting
-  voltage, or expect this interaction if the margin is tight.
+- *Boundary flapping* — a reading oscillating right at the threshold (ADC
+  noise, supply ripple) could otherwise flap the lockout in and out rather
+  than settling. Once locked out, voltage must recover past
+  `lowBatteryThresholdV + 0.3V` (not just past the threshold itself) before
+  the lockout clears.
+- *Self-induced false trip* — firing an igniter draws real current through
+  the same 12V rail being sensed, so a fire pulse can sag `battery_v`
+  momentarily. The low-voltage condition must hold steady for 2 seconds
+  (comfortably longer than a `FIRE_PULSE_MS` pulse, or a short
+  multi-channel burst) before the lockout actually engages, so a firing
+  event's own transient sag isn't mistaken for a real low battery.
+
+This is the same debounce shape `SENSEFAILSAFE` already uses for the arm
+switch itself, just with a longer window and added hysteresis suited to a
+noisier, slower-moving analog signal rather than a mechanical switch.

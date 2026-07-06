@@ -31,6 +31,21 @@ bool lowVBlocking = false;  // live: switch closed, but low-voltage lockout is h
 
 bool sequenceActiveFlag = false;  // set via setSequenceActive(), from main.cpp
 
+// Firing draws real current through the same 12V rail battery_v senses, so
+// a fire pulse can sag it momentarily — this debounce keeps that kind of
+// sub-second transient from being mistaken for a real low battery. Longer
+// than FIRE_PULSE_MS (500ms) with margin for a short multi-channel burst.
+constexpr uint32_t LOW_VOLTAGE_DEBOUNCE_MS = 2000;
+
+// Once locked out, voltage must recover this far past the threshold before
+// the lockout clears — plain hysteresis, so a reading oscillating right at
+// the threshold (ADC noise, supply ripple) doesn't flap in and out.
+constexpr float LOW_VOLTAGE_HYSTERESIS_V = 0.3f;
+
+bool lowVRawPrev = false;      // last raw (pre-debounce) comparison result
+uint32_t lowVChangedAtMs = 0;
+bool lowVDebounced = false;    // debounced, hysteresis-applied lockout condition
+
 bool sampleRawArmed() {
   return analogRead(PIN_SENSE_FAILSAFE) > FAILSAFE_OK_RAW;
 }
@@ -43,8 +58,31 @@ float sampleBatteryVoltage() {
   return (analogRead(PIN_BATTERY) / (float)ADC_MAX) * ADC_VREF * BATTERY_DIVIDER_RATIO;
 }
 
-bool lowVoltageLockoutActive() {
-  return settings.lowVoltageLockoutEnabled && sampleBatteryVoltage() < settings.lowBatteryThresholdV;
+// Call once per updateArmState() — debounces and applies hysteresis to the
+// raw battery_v-vs-threshold comparison, so a fire-pulse sag or boundary
+// noise doesn't flap the lockout the way a single instantaneous sample
+// would. Same debounce shape as sampleRawArmed()/debouncedArmed above.
+bool computeLowVoltageLockout(uint32_t now) {
+  if (!settings.lowVoltageLockoutEnabled) {
+    lowVRawPrev = false;
+    lowVDebounced = false;
+    return false;
+  }
+
+  float v = sampleBatteryVoltage();
+  // While already locked out, require clearing threshold + hysteresis
+  // before the raw reading counts as "recovered".
+  bool raw = lowVDebounced ? (v < settings.lowBatteryThresholdV + LOW_VOLTAGE_HYSTERESIS_V)
+                           : (v < settings.lowBatteryThresholdV);
+
+  if (raw != lowVRawPrev) {
+    lowVChangedAtMs = now;
+    lowVRawPrev = raw;
+  }
+  if (raw != lowVDebounced && (now - lowVChangedAtMs) >= LOW_VOLTAGE_DEBOUNCE_MS) {
+    lowVDebounced = raw;
+  }
+  return lowVDebounced;
 }
 
 }  // namespace
@@ -61,14 +99,17 @@ void updateArmState() {
     debouncedArmed = rawArmed;
   }
 
+  bool lowV = computeLowVoltageLockout(now);
+
   switch (state) {
     case ArmState::DISARMED:
       if (debouncedArmed) {
-        if (lowVoltageLockoutActive()) {
-          // Switch is closed, but voltage is too low — hold in DISARMED.
-          // Recomputed every call, so this clears itself the instant
-          // voltage recovers (arming then proceeds next iteration) without
-          // needing the switch to be re-opened and closed.
+        if (lowV) {
+          // Switch is closed, but voltage is too low (debounced/hysteresis
+          // applied) — hold in DISARMED. Recomputed every call, so this
+          // clears itself once voltage recovers (arming then proceeds next
+          // iteration) without needing the switch to be re-opened and
+          // closed.
           lowVBlocking = true;
         } else {
           lowVBlocking = false;
@@ -87,11 +128,11 @@ void updateArmState() {
       break;
 
     case ArmState::COUNTDOWN:
-      // Voltage dropping below threshold mid-countdown forces a disarm,
-      // same as the switch opening — if the switch is still closed and
-      // voltage is still low, the DISARMED case above picks that up as
+      // Voltage dropping below threshold (debounced) mid-countdown forces a
+      // disarm, same as the switch opening — if the switch is still closed
+      // and voltage is still low, the DISARMED case above picks that up as
       // lowVBlocking on the very next iteration.
-      if (!debouncedArmed || lowVoltageLockoutActive()) {
+      if (!debouncedArmed || lowV) {
         state = ArmState::DISARMED;
       } else if ((int32_t)(now - countdownEndsAtMs) >= 0) {
         state = ArmState::READY;
@@ -99,7 +140,7 @@ void updateArmState() {
       break;
 
     case ArmState::READY:
-      if (!debouncedArmed || lowVoltageLockoutActive()) {
+      if (!debouncedArmed || lowV) {
         state = ArmState::DISARMED;
       }
       break;
