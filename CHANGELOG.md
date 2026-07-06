@@ -5,6 +5,11 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Hardware: RC snubbers on each channel's IRLZ44N MOSFET drain, to damp
+  switching transients from the igniter/wiring inductance.
+
 ## [0.1.0] - 2026-07-06
 
 Initial release.
