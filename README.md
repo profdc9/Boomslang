@@ -4,6 +4,45 @@ A 3-channel ESP32-S3 pyrotechnic/model-rocket ignition controller. Hardware
 (KiCad project, schematic, gerbers) is under `Boomslang/`; firmware is under
 `firmware/` (PlatformIO, Arduino framework).
 
+## ⚠️ Disclaimer — use at your own risk
+
+This project fires pyrotechnic devices and/or model rocket motors. Incorrect
+wiring, misconfiguration, a firmware bug, a hardware fault, or plain
+operator error can cause unintended ignition, fire, injury, or property
+damage. **This is a hobbyist project, provided AS-IS, with NO WARRANTY OF
+ANY KIND** — express or implied, including no warranty of merchantability,
+fitness for a particular purpose, or that it is safe, correct, reliable, or
+free of defects.
+
+By building, modifying, or using this hardware or firmware, you accept full
+responsibility for:
+
+- Verifying correct operation yourself, on your own hardware, before relying
+  on any of it — including every safety feature described in this README.
+- Complying with all applicable laws, regulations, and permitting
+  requirements for pyrotechnics, explosives, and/or model rocketry in your
+  jurisdiction.
+- Following standard range-safety practice: safe distances, no bystanders
+  in range, appropriate PPE, a real mechanical arm switch you trust, and
+  never treating any software feature here as a substitute for that.
+
+The author(s) and contributors accept **no liability** for any injury,
+death, damage, or loss arising from building, modifying, or using this
+project, to the fullest extent permitted by law.
+
+## License
+
+Dual-licensed by design, since this repo mixes source code and hardware
+design files:
+
+- **Firmware** (`firmware/`) is licensed under the [MIT License](LICENSE).
+- **Hardware design files** (`Boomslang/` — KiCad schematic, PCB, gerbers)
+  are licensed under [CC BY-SA 4.0](LICENSE-HARDWARE.txt).
+
+Both are permissive and allow commercial use, but neither one waives the
+disclaimer above — "you can use/modify/redistribute this" is a separate
+question from "this is safe or fit for any particular purpose."
+
 ## WiFi access
 
 The board hosts its own WiFi AP (no router needed) — SSID and password are
