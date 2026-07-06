@@ -84,6 +84,9 @@ async function refresh() {
   } else if (r.arm_continuity_error) {
     banner.className = 'banner contwarn';
     banner.textContent = 'Continuity problem on a selected channel — fix wiring or disable the check in Settings.';
+  } else if (r.low_voltage_blocking_arm) {
+    banner.className = 'banner contwarn';
+    banner.textContent = `Cannot arm — battery too low (${r.battery_v.toFixed(1)} V). Disable the lockout in Settings to override.`;
   } else if (r.arm_state === 'ready') {
     banner.className = 'banner ready';
     banner.textContent = r.trigger_locked

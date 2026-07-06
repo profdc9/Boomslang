@@ -26,8 +26,18 @@ bool contLocked = false;  // pre-trigger continuity-check-failed lockout
 bool blinkOn = false;
 uint32_t lastBlinkToggleMs = 0;
 
+bool lowVBlocking = false;  // live: switch closed, but low-voltage lockout is holding DISARMED
+
 bool sampleRawArmed() {
   return analogRead(PIN_SENSE_FAILSAFE) > FAILSAFE_OK_RAW;
+}
+
+// Independent read of PIN_BATTERY, mirroring main.cpp's readBatteryVoltage()
+// — this module already senses SENSEFAILSAFE on its own rather than relying
+// on main.cpp's rolling variables, so this follows the same self-contained
+// pattern.
+float sampleBatteryVoltage() {
+  return (analogRead(PIN_BATTERY) / (float)ADC_MAX) * ADC_VREF * BATTERY_DIVIDER_RATIO;
 }
 
 }  // namespace
@@ -47,12 +57,24 @@ void updateArmState() {
   switch (state) {
     case ArmState::DISARMED:
       if (debouncedArmed) {
-        state = ArmState::COUNTDOWN;
-        countdownEndsAtMs = now + settings.armCountdownSec * 1000UL;
-        // Being here at all means the arm switch was open — that's the
-        // "disarm" half of "disarm and rearm" satisfied, for both lockouts.
-        locked = false;
-        contLocked = false;
+        if (settings.lowVoltageLockoutEnabled &&
+            sampleBatteryVoltage() < settings.lowBatteryThresholdV) {
+          // Switch is closed, but voltage is too low — hold in DISARMED.
+          // Recomputed every call, so this clears itself the instant
+          // voltage recovers (arming then proceeds next iteration) without
+          // needing the switch to be re-opened and closed.
+          lowVBlocking = true;
+        } else {
+          lowVBlocking = false;
+          state = ArmState::COUNTDOWN;
+          countdownEndsAtMs = now + settings.armCountdownSec * 1000UL;
+          // Being here at all means the arm switch was open — that's the
+          // "disarm" half of "disarm and rearm" satisfied, for both lockouts.
+          locked = false;
+          contLocked = false;
+        }
+      } else {
+        lowVBlocking = false;
       }
       break;
 
@@ -113,3 +135,5 @@ void notifyTriggerAccepted() {
 bool continuityLockedOut() { return contLocked; }
 
 void notifyContinuityCheckFailed() { contLocked = true; }
+
+bool lowVoltageBlockingArm() { return lowVBlocking; }

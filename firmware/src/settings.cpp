@@ -36,6 +36,7 @@ void loadSettings() {
   settings.checkContinuityOnArm = prefs.getBool("contOnArm", settings.checkContinuityOnArm);
   settings.checkContinuityBeforeTrigger = prefs.getBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
   settings.lowBatteryThresholdV = prefs.getFloat("lowBattV", settings.lowBatteryThresholdV);
+  settings.lowVoltageLockoutEnabled = prefs.getBool("lvLockout", settings.lowVoltageLockoutEnabled);
   prefs.end();
 }
 
@@ -62,6 +63,7 @@ bool saveSettings() {
   prefs.putBool("contOnArm", settings.checkContinuityOnArm);
   prefs.putBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
   prefs.putFloat("lowBattV", settings.lowBatteryThresholdV);
+  prefs.putBool("lvLockout", settings.lowVoltageLockoutEnabled);
   prefs.end();
   return true;
 }

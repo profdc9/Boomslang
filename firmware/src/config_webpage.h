@@ -62,8 +62,10 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
 
 <div class="card">
   <strong>Battery</strong>
-  <label>Low-battery warning threshold (V) <input type="number" id="lowBattV" step="0.1" min="0" max="30"></label>
-  <div class="hint">Just a warning shown on the control page — doesn't block arming or triggering.</div>
+  <label>Low-battery threshold (V) <input type="number" id="lowBattV" step="0.1" min="0" max="30"></label>
+  <div class="hint">Below this, the control page shows a warning.</div>
+  <div class="checkrow"><span>Block arming below threshold</span><input type="checkbox" id="lvLockout"></div>
+  <div class="hint">If the arm switch closes while battery voltage is under the threshold above, the device stays disarmed until voltage recovers. Turn off to arm anyway (e.g. bench testing on a supply intentionally below threshold).</div>
 </div>
 
 <button class="save-btn" onclick="save()">Save</button>
@@ -97,6 +99,7 @@ async function loadConfig() {
   document.getElementById('contOnArm').checked = c.check_continuity_on_arm;
   document.getElementById('contBeforeTrig').checked = c.check_continuity_before_trigger;
   document.getElementById('lowBattV').value = c.low_battery_threshold_v;
+  document.getElementById('lvLockout').checked = c.low_voltage_lockout_enabled;
 }
 
 async function save() {
@@ -110,12 +113,13 @@ async function save() {
   const contOnArm = document.getElementById('contOnArm').checked ? '1' : '0';
   const contBeforeTrig = document.getElementById('contBeforeTrig').checked ? '1' : '0';
   const lowBattV = document.getElementById('lowBattV').value;
+  const lvLockout = document.getElementById('lvLockout').checked ? '1' : '0';
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
     `&arm_countdown_s=${countdown}&visible_when_armed=${visible}` +
     `&audible_when_armed=${audible}&require_rearm=${reqRearm}` +
     `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}` +
-    `&low_battery_threshold_v=${lowBattV}`,
+    `&low_battery_threshold_v=${lowBattV}&low_voltage_lockout_enabled=${lvLockout}`,
     { method: 'POST' });
   showStatus(await resp.json());
 }

@@ -32,3 +32,11 @@ void notifyTriggerAccepted();
 // point triggerLockedOut() is (the arm switch detected open).
 bool continuityLockedOut();
 void notifyContinuityCheckFailed();
+
+// True when the arm switch is physically closed but settings.lowVoltage-
+// LockoutEnabled and battery_v < settings.lowBatteryThresholdV are keeping
+// the device in DISARMED rather than transitioning to COUNTDOWN. Live, not
+// latched — recomputed every updateArmState() call, so it clears itself
+// the instant voltage recovers (arming then proceeds normally) or the arm
+// switch is opened.
+bool lowVoltageBlockingArm();

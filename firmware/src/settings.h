@@ -44,9 +44,16 @@ struct Settings {
   // (that setting is about the post-success case; this is separate).
   bool checkContinuityBeforeTrigger = true;
 
-  // Below this, the UI shows a low-battery warning. Just a warning — it
-  // doesn't block arming or triggering.
+  // Below this, the UI shows a low-battery warning, and — if
+  // lowVoltageLockoutEnabled — arming is blocked (the arm switch closing
+  // doesn't transition out of DISARMED while voltage is under threshold).
   float lowBatteryThresholdV = 11.5f;
+
+  // If true, the arm switch closing while battery_v < lowBatteryThresholdV
+  // does not arm the device — it stays DISARMED until voltage recovers.
+  // Independent of the warning display, so it can be turned off for bench
+  // testing on a supply that's intentionally below threshold.
+  bool lowVoltageLockoutEnabled = true;
 };
 
 extern Settings settings;

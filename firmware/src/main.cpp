@@ -171,6 +171,8 @@ void buildStatusJson(String &out) {
   out += String(batteryVoltage, 2);
   out += ",\"low_battery\":";
   out += (batteryVoltage < settings.lowBatteryThresholdV ? "true" : "false");
+  out += ",\"low_voltage_blocking_arm\":";
+  out += (lowVoltageBlockingArm() ? "true" : "false");
   out += ",\"fault\":";
   out += (faultLatched ? "true" : "false");
   out += ",\"fault_snapshot_valid\":";
@@ -350,6 +352,8 @@ void handleConfigGet() {
   out += (settings.checkContinuityBeforeTrigger ? "true" : "false");
   out += ",\"low_battery_threshold_v\":";
   out += String(settings.lowBatteryThresholdV, 2);
+  out += ",\"low_voltage_lockout_enabled\":";
+  out += (settings.lowVoltageLockoutEnabled ? "true" : "false");
   out += "}";
   server.send(200, "application/json", out);
 }
@@ -397,6 +401,7 @@ void handleConfigPost() {
   bool reqRearm = server.arg("require_rearm") == "1";
   bool contOnArm = server.arg("check_continuity_on_arm") == "1";
   bool contBeforeTrig = server.arg("check_continuity_before_trigger") == "1";
+  bool lvLockout = server.arg("low_voltage_lockout_enabled") == "1";
 
   // Applied to the in-memory settings immediately either way — none of
   // these influence a firing/fault decision already in flight, so there's
@@ -410,6 +415,7 @@ void handleConfigPost() {
   settings.checkContinuityOnArm = contOnArm;
   settings.checkContinuityBeforeTrigger = contBeforeTrig;
   settings.lowBatteryThresholdV = lowBattThresh;
+  settings.lowVoltageLockoutEnabled = lvLockout;
 
   bool saved = saveSettings();
   if (!saved) {
