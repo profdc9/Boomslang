@@ -29,9 +29,14 @@ struct Settings {
   // the current sequence finishes, with no rearm needed.
   bool requireRearmAfterFire = true;
 
-  // Per-channel delay (seconds) from a TRIGGER press to that channel's fire
-  // pulse, for sequencing multiple channels off one trigger.
-  float channelDelaySec[NUM_CHANNELS] = {0.0f, 0.0f, 0.0f};
+  // Per-channel offset (milliseconds, valid range 0-60000) from a TRIGGER
+  // press to that channel's trigger output going low, for sequencing
+  // multiple channels off one press.
+  uint32_t channelDelayMs[NUM_CHANNELS] = {0, 0, 0};
+
+  // Per-channel duration (milliseconds, valid range 0-30000) the trigger
+  // output stays low once it fires.
+  uint32_t channelDurationMs[NUM_CHANNELS] = {500, 500, 500};
 
   // While armed, continuously verify every selected channel still has
   // continuity; if not, block triggering (self-clears the instant it's

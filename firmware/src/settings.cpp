@@ -27,7 +27,9 @@ void loadSettings() {
     keyFor("senseOhm", i, key, sizeof(key));
     settings.senseOhms[i] = prefs.getFloat(key, settings.senseOhms[i]);
     keyFor("chDelay", i, key, sizeof(key));
-    settings.channelDelaySec[i] = prefs.getFloat(key, settings.channelDelaySec[i]);
+    settings.channelDelayMs[i] = prefs.getUInt(key, settings.channelDelayMs[i]);
+    keyFor("chDur", i, key, sizeof(key));
+    settings.channelDurationMs[i] = prefs.getUInt(key, settings.channelDurationMs[i]);
   }
   settings.armCountdownSec = prefs.getUInt("armCountdown", settings.armCountdownSec);
   settings.visibleWhenArmed = prefs.getBool("visibleArmed", settings.visibleWhenArmed);
@@ -54,7 +56,9 @@ bool saveSettings() {
     keyFor("senseOhm", i, key, sizeof(key));
     prefs.putFloat(key, settings.senseOhms[i]);
     keyFor("chDelay", i, key, sizeof(key));
-    prefs.putFloat(key, settings.channelDelaySec[i]);
+    prefs.putUInt(key, settings.channelDelayMs[i]);
+    keyFor("chDur", i, key, sizeof(key));
+    prefs.putUInt(key, settings.channelDurationMs[i]);
   }
   prefs.putUInt("armCountdown", settings.armCountdownSec);
   prefs.putBool("visibleArmed", settings.visibleWhenArmed);

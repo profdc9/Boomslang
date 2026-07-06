@@ -34,7 +34,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .ok { background:#3ecf3e; } .bad { background:#cf3e3e; } .mid { background:#e0c040; }
   .ch-detail { margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .status-text { font-size:0.9em; color:#999; }
-  .ch-detail input[type=number] { width:84px; padding:10px; border-radius:8px; border:1px solid #444; background:#0c0c0c; color:#eee; font-size:1.05em; }
+  .ch-detail input[type=number] { width:92px; padding:10px; border-radius:8px; border:1px solid #444; background:#0c0c0c; color:#eee; font-size:1.05em; }
+  .ch-stats { margin-top:6px; font-size:0.85em; color:#888; }
   button { font-size:1.1em; padding:16px; border-radius:12px; border:none; font-weight:700; width:100%; }
   .trigger-btn { background:#c0392b; color:#fff; margin-top:8px; }
   .trigger-btn:disabled { background:#444; color:#888; }
@@ -145,8 +146,12 @@ function buildChannels(r) {
       </div>
       <div class="ch-detail">
         <span id="status${i}" class="status-text"></span>
-        <span>delay (s) <input type="number" id="delay${i}" step="0.1" min="0" max="60" value="${c.delay_s}" inputmode="decimal" onchange="saveDelay(${i})"></span>
-      </div>`;
+      </div>
+      <div class="ch-detail">
+        <span>offset (ms) <input type="number" id="delay${i}" step="100" min="0" max="60000" value="${c.delay_ms}" inputmode="numeric" onchange="saveDelay(${i})"></span>
+        <span>duration (ms) <input type="number" id="dur${i}" step="100" min="0" max="30000" value="${c.duration_ms}" inputmode="numeric" onchange="saveDuration(${i})"></span>
+      </div>
+      <div class="ch-stats" id="stats${i}"></div>`;
     div.appendChild(el);
   });
   updateChannels(r);
@@ -159,6 +164,8 @@ function updateChannels(r) {
     const state = c.firing ? 'FIRING' : (c.scheduled ? 'scheduled' : (c.continuity ? 'continuity OK' : 'no continuity'));
     document.getElementById(`status${i}`).textContent = `${state} · ${c.last_current_a.toFixed(2)} A`;
     document.getElementById(`sel${i}`).disabled = r.selection_locked;
+    document.getElementById(`stats${i}`).textContent =
+      `last pulse — peak ${c.peak_current_a.toFixed(2)} A, avg ${c.avg_current_a.toFixed(2)} A`;
   });
 }
 
@@ -174,7 +181,12 @@ async function saveSelect(i) {
 
 async function saveDelay(i) {
   const v = document.getElementById(`delay${i}`).value;
-  await fetch(`/channel_delay?ch=${i}&delay=${v}`, { method: 'POST' });
+  await fetch(`/channel_delay?ch=${i}&delay_ms=${v}`, { method: 'POST' });
+}
+
+async function saveDuration(i) {
+  const v = document.getElementById(`dur${i}`).value;
+  await fetch(`/channel_duration?ch=${i}&duration_ms=${v}`, { method: 'POST' });
 }
 
 async function doTrigger() {

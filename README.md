@@ -99,21 +99,28 @@ single press.
 - A checkbox to include that channel in the next trigger. **Not** persisted
   — it resets on every page load, so a stale "everything selected" state
   from a previous session can never carry over silently.
-- A delay (seconds, default 0) from the TRIGGER press to that channel's fire
-  pulse. This **is** persisted, so a fixed show sequence doesn't need
-  retyping every session.
+- An **offset** in milliseconds (0-60000, default 0) from the TRIGGER press
+  to that channel's trigger output going low.
+- A **duration** in milliseconds (0-30000, default 500) that the trigger
+  output then stays low.
+
+Both offset and duration are persisted per channel, so a fixed show
+sequence doesn't need retyping every session. They're plain milliseconds
+rather than seconds specifically for finer-grained control over short
+pulses.
 
 **Pressing TRIGGER** is only possible when `arm_state` is `READY`, there's no
 active fault, no sequence is already running, and (if
 `requireRearmAfterFire` is on) the device hasn't fired since it was last
-armed. It schedules every selected channel to fire at
-`now + its configured delay`, then immediately blocks further TRIGGER
-presses until that sequence finishes (you can never have two sequences in
-flight at once, regardless of settings).
+armed. It schedules every selected channel's trigger output to go low at
+`now + its configured offset`, for its configured duration, then
+immediately blocks further TRIGGER presses until that sequence finishes
+(you can never have two sequences in flight at once, regardless of
+settings).
 
 **At each channel's actual fire moment** — not just when TRIGGER was pressed
-— the firmware re-checks armed state, fault, and continuity. A multi-second
-delay is long enough for something to change, so a channel that fails this
+— the firmware re-checks armed state, fault, and continuity. An offset can
+be long enough for something to change, so a channel that fails this
 recheck is skipped (and logged) rather than aborting the rest of the
 sequence. If the arm switch is opened mid-sequence, the gate drivers lose
 power outright regardless of what firmware does — this recheck is
@@ -124,6 +131,15 @@ sequence has run, no further TRIGGER is accepted until the arm switch is
 opened and closed again (a fresh disarm + countdown + `READY`). With it off,
 another TRIGGER is accepted as soon as the current sequence finishes, no
 rearm needed.
+
+**Peak and average current**, per channel, for its most recent pulse: while
+a channel's trigger output is low, `firmware/src/main.cpp`'s `loop()`
+samples that channel's current sense on every iteration, tracking the
+highest single sample (peak) and the running mean of all samples (average).
+Both are reset at the start of each pulse and then simply held afterward —
+so they remain readable (`peak_current_a`/`avg_current_a` in
+`/status.json`, shown under each channel on the control page) for the rest
+of the session, until that channel fires again.
 
 ## ABORT and PANIC buttons
 

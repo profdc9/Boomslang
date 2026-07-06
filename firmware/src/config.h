@@ -43,11 +43,6 @@ constexpr int FAILSAFE_OK_RAW   = CONTINUITY_OK_RAW;
 // like the current-sense shunts, so this is a compile-time constant).
 constexpr float BATTERY_DIVIDER_RATIO = 11.0f;
 
-// A fire command pulses TRIGGER low for this long, then releases it HIGH
-// regardless of what the software is doing — this bounds worst-case
-// energy delivered to the igniter and battery drain if anything hangs.
-constexpr uint32_t FIRE_PULSE_MS = 500;
-
 // WiFi AP the board hosts for the control page. Change the password before
 // using this at an actual field/range.
 constexpr char AP_SSID[]     = "Boomslang";

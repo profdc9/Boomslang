@@ -33,8 +33,9 @@ bool sequenceActiveFlag = false;  // set via setSequenceActive(), from main.cpp
 
 // Firing draws real current through the same 12V rail battery_v senses, so
 // a fire pulse can sag it momentarily — this debounce keeps that kind of
-// sub-second transient from being mistaken for a real low battery. Longer
-// than FIRE_PULSE_MS (500ms) with margin for a short multi-channel burst.
+// transient from being mistaken for a real low battery. Longer than a
+// typical channelDurationMs pulse, with margin for a short multi-channel
+// burst.
 constexpr uint32_t LOW_VOLTAGE_DEBOUNCE_MS = 2000;
 
 // Once locked out, voltage must recover this far past the threshold before

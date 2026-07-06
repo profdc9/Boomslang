@@ -31,6 +31,16 @@ struct ChannelState {
   // it. Not cleared automatically after a sequence or a disarm; the
   // confirm() dialog before firing shows exactly what's selected either way.
   bool selected = false;
+
+  // Peak and average current for this channel's most recent fire pulse.
+  // Reset at the start of each pulse (startFirePulse()), sampled every
+  // loop() iteration while fireActive, and then simply held — so they
+  // remain readable after the pulse (and the whole sequence) ends, until
+  // the channel fires again.
+  float peakCurrentA = 0.0f;
+  float avgCurrentA = 0.0f;
+  float currentSumA = 0.0f;      // accumulator behind avgCurrentA
+  uint32_t currentSampleCount = 0;
 };
 ChannelState channels[NUM_CHANNELS];
 
@@ -141,14 +151,18 @@ float readBatteryVoltage() {
 
 void startFirePulse(int ch) {
   channels[ch].fireActive = true;
-  channels[ch].fireEndsAt = millis() + FIRE_PULSE_MS;
+  channels[ch].fireEndsAt = millis() + settings.channelDurationMs[ch];
+  channels[ch].peakCurrentA = 0.0f;
+  channels[ch].avgCurrentA = 0.0f;
+  channels[ch].currentSumA = 0.0f;
+  channels[ch].currentSampleCount = 0;
   digitalWrite(PIN_TRIGGER[ch], LOW);
-  Serial.printf("[fire] channel %d fired\n", ch + 1);
+  Serial.printf("[fire] channel %d fired for %lu ms\n", ch + 1, (unsigned long)settings.channelDurationMs[ch]);
 }
 
 // Immediately stops any channel mid-pulse (forces its trigger back HIGH
-// right away, rather than waiting out the rest of FIRE_PULSE_MS) and
-// cancels anything still scheduled. Used by ABORT, PANIC, and fault
+// right away, rather than waiting out the rest of its configured duration)
+// and cancels anything still scheduled. Used by ABORT, PANIC, and fault
 // handling — none of them wait for the normal pulse timeout in loop().
 void stopSequence() {
   for (int i = 0; i < NUM_CHANNELS; i++) {
@@ -211,10 +225,16 @@ void buildStatusJson(String &out) {
     out += (channels[i].fireActive ? "true" : "false");
     out += ",\"scheduled\":";
     out += (channels[i].scheduled ? "true" : "false");
-    out += ",\"delay_s\":";
-    out += String(settings.channelDelaySec[i], 2);
+    out += ",\"delay_ms\":";
+    out += settings.channelDelayMs[i];
+    out += ",\"duration_ms\":";
+    out += settings.channelDurationMs[i];
     out += ",\"last_current_a\":";
     out += String(channels[i].lastCurrentA, 3);
+    out += ",\"peak_current_a\":";
+    out += String(channels[i].peakCurrentA, 3);
+    out += ",\"avg_current_a\":";
+    out += String(channels[i].avgCurrentA, 3);
     out += "}";
   }
   out += "]}";
@@ -316,7 +336,7 @@ void handleTrigger() {
   for (int i = 0; i < NUM_CHANNELS; i++) {
     if (!channels[i].selected) continue;
     channels[i].scheduled = true;
-    channels[i].fireAtMs = now + (uint32_t)(settings.channelDelaySec[i] * 1000.0f);
+    channels[i].fireAtMs = now + settings.channelDelayMs[i];
   }
 
   sequenceActive = true;
@@ -349,8 +369,8 @@ void handlePanic() {
 }
 
 void handleChannelDelay() {
-  if (!server.hasArg("ch") || !server.hasArg("delay")) {
-    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or delay\"}");
+  if (!server.hasArg("ch") || !server.hasArg("delay_ms")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or delay_ms\"}");
     return;
   }
   int ch = server.arg("ch").toInt();
@@ -358,13 +378,39 @@ void handleChannelDelay() {
     server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad channel\"}");
     return;
   }
-  float delaySec = server.arg("delay").toFloat();
-  if (delaySec < 0.0f || delaySec > 60.0f) {
-    server.send(400, "application/json", "{\"ok\":false,\"error\":\"delay out of range (0-60s)\"}");
+  long delayMs = server.arg("delay_ms").toInt();
+  if (delayMs < 0 || delayMs > 60000) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"delay_ms out of range (0-60000)\"}");
     return;
   }
 
-  settings.channelDelaySec[ch] = delaySec;
+  settings.channelDelayMs[ch] = (uint32_t)delayMs;
+  bool saved = saveSettings();
+  if (!saved) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"applied, but not saved to flash - disarm to persist\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleChannelDuration() {
+  if (!server.hasArg("ch") || !server.hasArg("duration_ms")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or duration_ms\"}");
+    return;
+  }
+  int ch = server.arg("ch").toInt();
+  if (ch < 0 || ch >= NUM_CHANNELS) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad channel\"}");
+    return;
+  }
+  long durationMs = server.arg("duration_ms").toInt();
+  if (durationMs < 0 || durationMs > 30000) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"duration_ms out of range (0-30000)\"}");
+    return;
+  }
+
+  settings.channelDurationMs[ch] = (uint32_t)durationMs;
   bool saved = saveSettings();
   if (!saved) {
     server.send(409, "application/json",
@@ -569,6 +615,7 @@ void setup() {
   server.on("/panic", HTTP_POST, handlePanic);
   server.on("/select", HTTP_POST, handleSelect);
   server.on("/channel_delay", HTTP_POST, handleChannelDelay);
+  server.on("/channel_duration", HTTP_POST, handleChannelDuration);
   server.on("/clear_fault", HTTP_POST, handleClearFault);
   server.on("/config", HTTP_GET, handleConfigPage);
   server.on("/config.json", HTTP_GET, handleConfigGet);
@@ -585,14 +632,26 @@ void loop() {
   uint32_t now = millis();
 
   for (int i = 0; i < NUM_CHANNELS; i++) {
+    // Rolling current reading for the UI; reads ~0 when idle since the
+    // shunt is permanently tied to GND.
+    channels[i].lastCurrentA = readCurrentA(i);
+
+    // Peak/average accumulation for this pulse — sampled before checking
+    // for pulse end below, so the very last active reading still counts.
+    if (channels[i].fireActive) {
+      if (channels[i].lastCurrentA > channels[i].peakCurrentA) {
+        channels[i].peakCurrentA = channels[i].lastCurrentA;
+      }
+      channels[i].currentSumA += channels[i].lastCurrentA;
+      channels[i].currentSampleCount++;
+      channels[i].avgCurrentA = channels[i].currentSumA / channels[i].currentSampleCount;
+    }
+
     // Release any channel whose fire pulse has elapsed.
     if (channels[i].fireActive && (int32_t)(now - channels[i].fireEndsAt) >= 0) {
       digitalWrite(PIN_TRIGGER[i], HIGH);
       channels[i].fireActive = false;
     }
-    // Rolling current reading for the UI; reads ~0 when idle since the
-    // shunt is permanently tied to GND.
-    channels[i].lastCurrentA = readCurrentA(i);
   }
 
   batteryVoltage = readBatteryVoltage();
