@@ -30,9 +30,10 @@ constexpr int   ADC_MAX    = 4095;
 constexpr int CONTINUITY_OK_RAW   = 600;  // ~0.48V
 constexpr int FAILSAFE_OK_RAW     = 600;
 
-// Firing current sense: SENSE node voltage = I_fire * SENSE_OHMS, direct
-// (no divider) since the ADC input draws negligible current.
-constexpr float SENSE_OHMS = 0.05f;
+// Firing current sense: SENSE node voltage = I_fire * senseOhms[ch], direct
+// (no divider) since the ADC input draws negligible current. The per-channel
+// shunt value itself is a runtime-configurable setting (see settings.h), not
+// a compile-time constant — it's field-replaceable hardware.
 
 // A fire command pulses TRIGGER low for this long, then releases it HIGH
 // regardless of what the software is doing — this bounds worst-case

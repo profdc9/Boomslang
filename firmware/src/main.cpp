@@ -6,6 +6,7 @@
 #include "soc/gpio_reg.h"
 #include "soc/soc.h"
 #include "config.h"
+#include "settings.h"
 #include "webpage.h"
 
 WebServer server(80);
@@ -69,7 +70,7 @@ void IRAM_ATTR onFaultISR() {
 float readCurrentA(int ch) {
   int raw = analogRead(PIN_SENSE[ch]);
   float v = (raw / (float)ADC_MAX) * ADC_VREF;
-  return v / SENSE_OHMS;
+  return v / settings.senseOhms[ch];
 }
 
 // Blocked on a task notification the rest of the time; woken by onFaultISR()
@@ -235,6 +236,7 @@ void setup() {
 #endif
 
   analogReadResolution(12);
+  loadSettings();
 
   // Must exist before the ISR can notify it. Pinned to core 0, opposite the
   // Arduino loop/WebServer work (core 1 by default), so it doesn't have to
