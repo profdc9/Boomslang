@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-06
+
 ### Added
 
 - Hardware: RC snubbers on each channel's IRLZ44N MOSFET drain, to damp
