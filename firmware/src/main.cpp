@@ -141,6 +141,19 @@ void faultSampleTask(void *) {
   }
 }
 
+// Every other JSON field emitted below is a number or a bool computed by
+// firmware; SSID/password are the one piece of free-form user text in
+// /status.json and /config.json, so they're the one place a literal `"` or
+// `\` in the input could otherwise break the JSON output.
+void appendJsonString(String &out, const char *s) {
+  out += '"';
+  for (const char *p = s; *p; p++) {
+    if (*p == '"' || *p == '\\') out += '\\';
+    out += *p;
+  }
+  out += '"';
+}
+
 bool hasContinuity(int ch) {
   return analogRead(PIN_CONTINUITY[ch]) > CONTINUITY_OK_RAW;
 }
@@ -456,6 +469,10 @@ void handleConfigGet() {
   out += String(settings.lowBatteryThresholdV, 2);
   out += ",\"low_voltage_lockout_enabled\":";
   out += (settings.lowVoltageLockoutEnabled ? "true" : "false");
+  out += ",\"wifi_ssid\":";
+  appendJsonString(out, settings.wifiSsid);
+  out += ",\"wifi_password\":";
+  appendJsonString(out, settings.wifiPassword);
   out += "}";
   server.send(200, "application/json", out);
 }
@@ -498,6 +515,27 @@ void handleConfigPost() {
     return;
   }
 
+  if (!server.hasArg("wifi_ssid")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing wifi_ssid\"}");
+    return;
+  }
+  String newSsid = server.arg("wifi_ssid");
+  if (newSsid.length() < 1 || newSsid.length() > 32) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"wifi_ssid must be 1-32 characters\"}");
+    return;
+  }
+
+  if (!server.hasArg("wifi_password")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing wifi_password\"}");
+    return;
+  }
+  String newPassword = server.arg("wifi_password");
+  if (newPassword.length() != 0 && (newPassword.length() < 8 || newPassword.length() > 63)) {
+    server.send(400, "application/json",
+                "{\"ok\":false,\"error\":\"wifi_password must be empty (open network) or 8-63 characters\"}");
+    return;
+  }
+
   bool visible = server.arg("visible_when_armed") == "1";
   bool audible = server.arg("audible_when_armed") == "1";
   bool reqRearm = server.arg("require_rearm") == "1";
@@ -508,7 +546,11 @@ void handleConfigPost() {
   // Applied to the in-memory settings immediately either way — none of
   // these influence a firing/fault decision already in flight, so there's
   // no safety reason to gate the RAM update on armed state. Only the flash
-  // write itself needs that gate.
+  // write itself needs that gate. WiFi credentials are the exception in
+  // spirit (they DO need a reboot to actually take effect, since
+  // WiFi.softAP() isn't re-called at runtime) but there's no harm in
+  // updating settings.wifiSsid/wifiPassword immediately too — it's just
+  // inert until the next boot.
   for (int i = 0; i < NUM_CHANNELS; i++) settings.senseOhms[i] = newSenseOhms[i];
   settings.armCountdownSec = (uint32_t)countdown;
   settings.visibleWhenArmed = visible;
@@ -518,6 +560,8 @@ void handleConfigPost() {
   settings.checkContinuityBeforeTrigger = contBeforeTrig;
   settings.lowBatteryThresholdV = lowBattThresh;
   settings.lowVoltageLockoutEnabled = lvLockout;
+  newSsid.toCharArray(settings.wifiSsid, sizeof(settings.wifiSsid));
+  newPassword.toCharArray(settings.wifiPassword, sizeof(settings.wifiPassword));
 
   bool saved = saveSettings();
   if (!saved) {
@@ -612,9 +656,9 @@ void setup() {
 
   WiFi.persistent(false);  // avoid NVS flash writes for AP config while the board may be armed
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  WiFi.softAP(settings.wifiSsid, settings.wifiPassword);
   Serial.print("[wifi] AP \"");
-  Serial.print(AP_SSID);
+  Serial.print(settings.wifiSsid);
   Serial.print("\" up, browse to http://");
   Serial.println(WiFi.softAPIP());
 

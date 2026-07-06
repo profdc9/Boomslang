@@ -59,6 +59,15 @@ struct Settings {
   // Independent of the warning display, so it can be turned off for bench
   // testing on a supply that's intentionally below threshold.
   bool lowVoltageLockoutEnabled = true;
+
+  // WiFi AP the board hosts for the control page. This password is the
+  // device's only access control — anyone who has it can arm and fire — so
+  // treat it accordingly. Fixed-size buffers (not String) to keep NVS
+  // load/save simple and avoid heap fragmentation. Changing either only
+  // takes effect after a reboot (WiFi.softAP() isn't re-called at runtime),
+  // so the settings page needs to say so.
+  char wifiSsid[33] = "boomslang";      // max 32 chars, WiFi SSID limit
+  char wifiPassword[64] = "liftoff!";   // 0 (open network) or 8-63 chars, WPA2-PSK limit
 };
 
 extern Settings settings;

@@ -25,6 +25,7 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
   .hint { color:#999; font-size:0.85em; margin-bottom:10px; }
   label { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:14px 0 4px; font-size:1em; color:#ccc; }
   input[type=number] { width:110px; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #444; background:#0c0c0c; color:#eee; font-size:1.05em; }
+  input[type=text] { width:180px; box-sizing:border-box; padding:10px; border-radius:8px; border:1px solid #444; background:#0c0c0c; color:#eee; font-size:1.05em; }
   input[type=checkbox] { width:28px; height:28px; }
   .checkrow { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:14px 0; font-size:1em; }
   button { font-size:1.1em; padding:16px; border-radius:12px; border:none; font-weight:700; width:100%; margin-top:10px; }
@@ -70,6 +71,13 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
   <div class="hint">If the arm switch closes while battery voltage is under the threshold above, the device stays disarmed until voltage recovers. Turn off to arm anyway (e.g. bench testing on a supply intentionally below threshold).</div>
 </div>
 
+<div class="card">
+  <strong>WiFi</strong>
+  <label>Network name (SSID) <input type="text" id="wifiSsid" maxlength="32"></label>
+  <label>Password <input type="text" id="wifiPassword" maxlength="63"></label>
+  <div class="hint">This password is the device's only access control — anyone who has it can arm and fire. Leave it blank for an open, unencrypted network (not recommended). Changes here take effect only after the device is power-cycled or reset — you'll need to reconnect using the new name/password afterward.</div>
+</div>
+
 <button class="save-btn" onclick="save()">Save</button>
 <button class="reset-btn" onclick="resetDefaults()">Reset to Defaults</button>
 <div id="status" class="status"></div>
@@ -102,6 +110,8 @@ async function loadConfig() {
   document.getElementById('contBeforeTrig').checked = c.check_continuity_before_trigger;
   document.getElementById('lowBattV').value = c.low_battery_threshold_v;
   document.getElementById('lvLockout').checked = c.low_voltage_lockout_enabled;
+  document.getElementById('wifiSsid').value = c.wifi_ssid;
+  document.getElementById('wifiPassword').value = c.wifi_password;
 }
 
 async function save() {
@@ -116,12 +126,17 @@ async function save() {
   const contBeforeTrig = document.getElementById('contBeforeTrig').checked ? '1' : '0';
   const lowBattV = document.getElementById('lowBattV').value;
   const lvLockout = document.getElementById('lvLockout').checked ? '1' : '0';
+  // SSID/password are free text, unlike every other field here — must be
+  // URI-encoded before going into a query string.
+  const wifiSsid = encodeURIComponent(document.getElementById('wifiSsid').value);
+  const wifiPassword = encodeURIComponent(document.getElementById('wifiPassword').value);
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
     `&arm_countdown_s=${countdown}&visible_when_armed=${visible}` +
     `&audible_when_armed=${audible}&require_rearm=${reqRearm}` +
     `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}` +
-    `&low_battery_threshold_v=${lowBattV}&low_voltage_lockout_enabled=${lvLockout}`,
+    `&low_battery_threshold_v=${lowBattV}&low_voltage_lockout_enabled=${lvLockout}` +
+    `&wifi_ssid=${wifiSsid}&wifi_password=${wifiPassword}`,
     { method: 'POST' });
   showStatus(await resp.json());
 }

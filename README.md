@@ -4,6 +4,28 @@ A 3-channel ESP32-S3 pyrotechnic/model-rocket ignition controller. Hardware
 (KiCad project, schematic, gerbers) is under `Boomslang/`; firmware is under
 `firmware/` (PlatformIO, Arduino framework).
 
+## WiFi access
+
+The board hosts its own WiFi AP (no router needed) — SSID and password are
+persisted settings (`wifiSsid`/`wifiPassword`, settings page), defaulting to
+`boomslang` / `liftoff!`. **The password is this device's only access
+control** — there's no separate login on top of it, so anyone who has it can
+arm and fire. Change it from the default before using this anywhere it
+matters. A password can also be left blank for an open, unencrypted network,
+but that isn't recommended for the same reason.
+
+Changes take effect only after the device is power-cycled or reset (the AP
+isn't re-initialized at runtime) — you'll need to reconnect using the new
+name/password afterward. SSID must be 1-32 characters; password must be
+empty or 8-63 characters (the minimum WPA2-PSK allows).
+
+The control pages are served over plain HTTP, not HTTPS — WPA2 already
+encrypts the WiFi link itself, and adding TLS on top would mean a
+self-signed certificate that a phone would flag as untrusted on every visit,
+plus added latency on the page's frequent status polling, for a narrower
+additional threat (another authenticated client on the same AP sniffing
+traffic) than what WPA2 already covers.
+
 ## Overcurrent fault protection
 
 Each channel's IRLZ44N MOSFET has its own analog overcurrent comparator

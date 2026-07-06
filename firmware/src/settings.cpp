@@ -39,6 +39,13 @@ void loadSettings() {
   settings.checkContinuityBeforeTrigger = prefs.getBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
   settings.lowBatteryThresholdV = prefs.getFloat("lowBattV", settings.lowBatteryThresholdV);
   settings.lowVoltageLockoutEnabled = prefs.getBool("lvLockout", settings.lowVoltageLockoutEnabled);
+
+  // String-returning overload (not the char-buffer one) specifically so the
+  // "key not found" fallback is settings.wifiSsid/wifiPassword's current
+  // value (the compiled-in default, at this point) — same technique used
+  // for every other field above.
+  prefs.getString("wifiSsid", settings.wifiSsid).toCharArray(settings.wifiSsid, sizeof(settings.wifiSsid));
+  prefs.getString("wifiPass", settings.wifiPassword).toCharArray(settings.wifiPassword, sizeof(settings.wifiPassword));
   prefs.end();
 }
 
@@ -68,6 +75,8 @@ bool saveSettings() {
   prefs.putBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
   prefs.putFloat("lowBattV", settings.lowBatteryThresholdV);
   prefs.putBool("lvLockout", settings.lowVoltageLockoutEnabled);
+  prefs.putString("wifiSsid", settings.wifiSsid);
+  prefs.putString("wifiPass", settings.wifiPassword);
   prefs.end();
   return true;
 }

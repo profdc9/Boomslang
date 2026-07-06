@@ -43,11 +43,6 @@ constexpr int FAILSAFE_OK_RAW   = CONTINUITY_OK_RAW;
 // like the current-sense shunts, so this is a compile-time constant).
 constexpr float BATTERY_DIVIDER_RATIO = 11.0f;
 
-// WiFi AP the board hosts for the control page. Change the password before
-// using this at an actual field/range.
-constexpr char AP_SSID[]     = "Boomslang";
-constexpr char AP_PASSWORD[] = "firework123";
-
 // Debug timing instrumentation: toggles PIN_DEBUG_TIMING high as the first
 // thing onFaultISR() does and low once faultSampleTask finishes reading all
 // three SENSE channels. Put a scope or logic analyzer on this pin alongside
