@@ -1,13 +1,16 @@
 #pragma once
 
-// Main control page. Mobile/touch-first: single column, large tap targets,
-// no hover-dependent affordances — this is meant to be operated one-handed
-// on a phone at a launch site, not from a laptop.
+// Main control page — the operational screen: status, per-channel
+// checkbox + live continuity/firing state, and TRIGGER/ABORT/PANIC. Timing
+// setup (offset/duration) lives on /timing, post-fire peak/average current
+// review lives on /stats, so this page stays lean for actual field use.
+// Mobile/touch-first: single column, large tap targets, no hover-dependent
+// affordances — meant to be operated one-handed on a phone, not a laptop.
 //
 // Checkbox selection and the trigger button state are rebuilt only once, on
 // first load (buildChannels); subsequent polls (updateChannels) only touch
 // read-only display bits, so they never fight with in-progress user input
-// (a checkbox mid-tap, a delay field mid-edit).
+// (a checkbox mid-tap).
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!doctype html>
 <html>
@@ -20,6 +23,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   body { font-family: -apple-system, sans-serif; background:#111; color:#eee; margin:0; padding:12px; font-size:17px; }
   h1 { font-size:1.5em; margin:0 0 8px; }
   a { color:#8ab4ff; }
+  .nav { font-size:0.9em; text-align:center; margin-bottom:10px; }
+  .nav b { color:#eee; }
   .banner { padding:14px; border-radius:10px; margin-bottom:12px; font-weight:700; text-align:center; font-size:1.05em; }
   .disarmed { background:#4d3b1b; color:#ffdca6; }
   .countdown { background:#4d4a1b; color:#fff3a6; }
@@ -34,8 +39,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .ok { background:#3ecf3e; } .bad { background:#cf3e3e; } .mid { background:#e0c040; }
   .ch-detail { margin-top:10px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .status-text { font-size:0.9em; color:#999; }
-  .ch-detail input[type=number] { width:92px; padding:10px; border-radius:8px; border:1px solid #444; background:#0c0c0c; color:#eee; font-size:1.05em; }
-  .ch-stats { margin-top:6px; font-size:0.85em; color:#888; }
   button { font-size:1.1em; padding:16px; border-radius:12px; border:none; font-weight:700; width:100%; }
   .trigger-btn { background:#c0392b; color:#fff; margin-top:8px; }
   .trigger-btn:disabled { background:#444; color:#888; }
@@ -46,12 +49,12 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .panic-btn { background:#7a0000; color:#fff; }
   .aux { margin-top:14px; }
   .aux button { background:#333; color:#eee; font-size:1em; padding:14px; }
-  .small { font-size:0.9em; color:#999; margin-top:14px; text-align:center; }
   .battery { font-size:0.9em; color:#999; margin:-4px 0 12px; text-align:center; }
   .battery.low { color:#ff9e5e; font-weight:700; }
 </style>
 </head>
 <body>
+<div class="nav"><b>Main</b> &middot; <a href="/timing">Timing</a> &middot; <a href="/stats">Stats</a> &middot; <a href="/config">Settings</a></div>
 <h1>Boomslang</h1>
 <div id="banner" class="banner disarmed">loading...</div>
 <p class="battery" id="battery">Battery: -- V</p>
@@ -64,7 +67,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <div class="aux">
   <button onclick="clearFault()">Clear Fault Latch</button>
 </div>
-<p class="small"><a href="/config">Settings &rarr;</a></p>
 
 <script>
 let initialized = false;
@@ -146,12 +148,7 @@ function buildChannels(r) {
       </div>
       <div class="ch-detail">
         <span id="status${i}" class="status-text"></span>
-      </div>
-      <div class="ch-detail">
-        <span>offset (ms) <input type="number" id="delay${i}" step="100" min="0" max="60000" value="${c.delay_ms}" inputmode="numeric" onchange="saveDelay(${i})"></span>
-        <span>duration (ms) <input type="number" id="dur${i}" step="100" min="0" max="30000" value="${c.duration_ms}" inputmode="numeric" onchange="saveDuration(${i})"></span>
-      </div>
-      <div class="ch-stats" id="stats${i}"></div>`;
+      </div>`;
     div.appendChild(el);
   });
   updateChannels(r);
@@ -164,8 +161,6 @@ function updateChannels(r) {
     const state = c.firing ? 'FIRING' : (c.scheduled ? 'scheduled' : (c.continuity ? 'continuity OK' : 'no continuity'));
     document.getElementById(`status${i}`).textContent = `${state} · ${c.last_current_a.toFixed(2)} A`;
     document.getElementById(`sel${i}`).disabled = r.selection_locked;
-    document.getElementById(`stats${i}`).textContent =
-      `last pulse — peak ${c.peak_current_a.toFixed(2)} A, avg ${c.avg_current_a.toFixed(2)} A`;
   });
 }
 
@@ -177,16 +172,6 @@ async function saveSelect(i) {
     alert(j.error || 'could not change selection');
     document.getElementById(`sel${i}`).checked = !checked;  // revert on refusal
   }
-}
-
-async function saveDelay(i) {
-  const v = document.getElementById(`delay${i}`).value;
-  await fetch(`/channel_delay?ch=${i}&delay_ms=${v}`, { method: 'POST' });
-}
-
-async function saveDuration(i) {
-  const v = document.getElementById(`dur${i}`).value;
-  await fetch(`/channel_duration?ch=${i}&duration_ms=${v}`, { method: 'POST' });
 }
 
 async function doTrigger() {

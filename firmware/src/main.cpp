@@ -10,6 +10,8 @@
 #include "arm_state.h"
 #include "webpage.h"
 #include "config_webpage.h"
+#include "timing_webpage.h"
+#include "stats_webpage.h"
 
 WebServer server(80);
 
@@ -424,6 +426,14 @@ void handleConfigPage() {
   server.send_P(200, "text/html", CONFIG_HTML);
 }
 
+void handleTimingPage() {
+  server.send_P(200, "text/html", TIMING_HTML);
+}
+
+void handleStatsPage() {
+  server.send_P(200, "text/html", STATS_HTML);
+}
+
 void handleConfigGet() {
   String out = "{\"sense_ohms\":[";
   for (int i = 0; i < NUM_CHANNELS; i++) {
@@ -618,6 +628,8 @@ void setup() {
   server.on("/channel_duration", HTTP_POST, handleChannelDuration);
   server.on("/clear_fault", HTTP_POST, handleClearFault);
   server.on("/config", HTTP_GET, handleConfigPage);
+  server.on("/timing", HTTP_GET, handleTimingPage);
+  server.on("/stats", HTTP_GET, handleStatsPage);
   server.on("/config.json", HTTP_GET, handleConfigGet);
   server.on("/config", HTTP_POST, handleConfigPost);
   server.on("/config/reset", HTTP_POST, handleConfigReset);
