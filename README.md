@@ -75,3 +75,35 @@ sequence has run, no further TRIGGER is accepted until the arm switch is
 opened and closed again (a fresh disarm + countdown + `READY`). With it off,
 another TRIGGER is accepted as soon as the current sequence finishes, no
 rearm needed.
+
+## Battery voltage
+
+The 12V supply is sensed on GPIO2 through a fixed 1:11 resistor divider
+(`BATTERY_DIVIDER_RATIO` in `firmware/src/config.h` — a PCB-fixed ratio, not
+a runtime setting like the current-sense shunts). The reading is shown on
+the main control page as `battery_v`.
+
+**Low-battery warning:** below `lowBatteryThresholdV` (settings page,
+default **11.5V**), the battery readout on the control page turns orange and
+bold and appends "LOW BATTERY". This is just a warning — on its own it
+doesn't stop you from arming or triggering.
+
+**Low-voltage lockout** (`lowVoltageLockoutEnabled`, default **on**): reuses
+the same threshold to actually block operation, independent of the warning
+display:
+
+- If the arm switch closes while `battery_v` is under threshold, the device
+  stays `DISARMED` instead of entering `COUNTDOWN`.
+- If voltage drops below threshold *while already* in `COUNTDOWN` or
+  `READY`, the device is forced back to `DISARMED` immediately — the same
+  path as the arm switch opening, including aborting any in-flight trigger
+  sequence.
+
+Both cases are live, not latched: checked continuously, not just at the
+moment the switch closes. If the switch is still closed when voltage drops
+too low, the control page shows "Cannot arm — battery too low"; the instant
+voltage recovers above threshold, arming proceeds normally on its own,
+with no need to open and reclose the switch. Turn the lockout off in
+settings to arm anyway regardless of voltage (e.g. bench testing on a
+supply that's intentionally below threshold) while keeping the warning
+display active.
