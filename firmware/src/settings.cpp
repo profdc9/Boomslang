@@ -46,6 +46,7 @@ void loadSettings() {
   // for every other field above.
   prefs.getString("wifiSsid", settings.wifiSsid).toCharArray(settings.wifiSsid, sizeof(settings.wifiSsid));
   prefs.getString("wifiPass", settings.wifiPassword).toCharArray(settings.wifiPassword, sizeof(settings.wifiPassword));
+  settings.wifiStationMode = prefs.getBool("wifiStaMode", settings.wifiStationMode);
   prefs.end();
 }
 
@@ -77,6 +78,7 @@ bool saveSettings() {
   prefs.putBool("lvLockout", settings.lowVoltageLockoutEnabled);
   prefs.putString("wifiSsid", settings.wifiSsid);
   prefs.putString("wifiPass", settings.wifiPassword);
+  prefs.putBool("wifiStaMode", settings.wifiStationMode);
   prefs.end();
   return true;
 }

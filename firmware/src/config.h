@@ -56,3 +56,16 @@ constexpr float BATTERY_DIVIDER_RATIO = 11.0f;
 // isn't a pin you'd want for real analog use anyway), and is otherwise
 // unconnected on the PCB.
 constexpr int PIN_DEBUG_TIMING = 13;
+
+// Factory-reset pin: pulled up internally, checked once at boot (see
+// setup()). Ground it (jumper/button to GND) before power-up to reset all
+// settings to their compiled-in defaults. GPIO14 has no strapping or other
+// special function on the ESP32-S3, and is otherwise unconnected on the PCB.
+constexpr int PIN_FACTORY_RESET = 14;
+
+// How long setup() waits for a station-mode WiFi connection (settings.
+// wifiStationMode) before giving up and falling back to hosting its own AP
+// instead — see setup(). Trigger pins are already safely HIGH long before
+// this runs, so blocking here just delays when the web UI comes up, not
+// anything safety-relevant.
+constexpr uint32_t WIFI_STA_CONNECT_TIMEOUT_MS = 15000;

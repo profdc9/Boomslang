@@ -68,6 +68,15 @@ struct Settings {
   // so the settings page needs to say so.
   char wifiSsid[33] = "boomslang";      // max 32 chars, WiFi SSID limit
   char wifiPassword[64] = "liftoff!";   // 0 (open network) or 8-63 chars, WPA2-PSK limit
+
+  // If true, join wifiSsid/wifiPassword as a station (client) instead of
+  // hosting them as this device's own AP — for relaying through an existing
+  // router when operator and pyrotechnics need more distance than the
+  // device's own AP range allows. Default off. Deliberately not surfaced as
+  // a plain checkbox in the UI (see config_webpage.h) — anyone who can
+  // reach that external network can also reach this device, so enabling it
+  // needs to be a deliberate act, not an accidental tap.
+  bool wifiStationMode = false;
 };
 
 extern Settings settings;

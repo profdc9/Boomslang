@@ -68,6 +68,35 @@ plus added latency on the page's frequent status polling, for a narrower
 additional threat (another authenticated client on the same AP sniffing
 traffic) than what WPA2 already covers.
 
+**Relay (station) mode** (`wifiStationMode`, default **off**): instead of
+hosting its own AP, the device can join `wifiSsid`/`wifiPassword` as a
+client of an existing router, to relay through it when the operator needs
+more distance from the pyrotechnics than the device's own AP range allows.
+If it can't connect within 15 seconds (wrong password, out of range, router
+down), it falls back to hosting its own AP instead — so a bad relay network
+never leaves you locked out of the device with no way to disarm or abort.
+
+This setting is deliberately **not a checkbox** on the settings page:
+enabling it means anyone who can reach that external network can also reach
+this device, so it requires typing the literal word `relay` into a text
+box rather than a single accidental tap — blank or anything else both mean
+"stay off, host my own AP" (the safe default), including if the field is
+missing from the request entirely.
+
+**Before you enable this, secure that router/network yourself — it's now
+part of your access control, not just Boomslang's own password.** In its
+own AP mode, WPA2 on the device is the entire perimeter. In relay mode,
+that perimeter is whatever the router enforces: WPA2/WPA3 with a strong
+password of its own, no other untrusted devices or guests on it, and
+ideally a network used for nothing but this. A relay network that's open,
+weakly secured, or shared with devices you don't control gives *anyone on
+it* the same access as someone standing next to the device with its own
+password — arming and firing included.
+
+Either way — hosting an AP or joined as a station — the device also starts
+an mDNS responder, so `http://boomslang.local` works regardless of which
+mode ended up active or what IP a router's DHCP server happened to assign.
+
 ## Web UI pages
 
 Four pages, all polling `/status.json` and posting to the same handful of
@@ -340,3 +369,19 @@ addressing two failure modes a single raw comparison would otherwise have:
 This is the same debounce shape `SENSEFAILSAFE` already uses for the arm
 switch itself, just with a longer window and added hysteresis suited to a
 noisier, slower-moving analog signal rather than a mechanical switch.
+
+## Factory reset
+
+`PIN_FACTORY_RESET` (GPIO14) is pulled up internally and checked once,
+early in `setup()`, before settings are loaded. Ground it — a jumper or
+button to GND — before powering the board up, and every setting resets to
+its compiled-in default and is immediately persisted to flash, overwriting
+whatever was there. It's checked with a few reads over a couple of
+milliseconds rather than a single instantaneous one, so a pin still
+settling right after `pinMode()` doesn't trigger a reset by accident.
+
+This only runs at boot, from a floating/undriven starting point — there's
+no runtime "hold this pin for 10 seconds" monitor. GPIO14 has no strapping
+or other special function on the ESP32-S3 (unlike GPIO12 on the *original*
+ESP32, a common source of outdated advice online — that specific gotcha
+doesn't carry over to the S3), and is otherwise unconnected on the PCB.

@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ESPmDNS.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "soc/gpio_reg.h"
@@ -473,6 +474,8 @@ void handleConfigGet() {
   appendJsonString(out, settings.wifiSsid);
   out += ",\"wifi_password\":";
   appendJsonString(out, settings.wifiPassword);
+  out += ",\"wifi_station_mode\":";
+  out += (settings.wifiStationMode ? "true" : "false");
   out += "}";
   server.send(200, "application/json", out);
 }
@@ -543,6 +546,15 @@ void handleConfigPost() {
   bool contBeforeTrig = server.arg("check_continuity_before_trigger") == "1";
   bool lvLockout = server.arg("low_voltage_lockout_enabled") == "1";
 
+  // Deliberately not a checkbox: enabling this means anyone who can reach
+  // the joined network can also reach this device, so it requires typing
+  // the literal word "relay" rather than a single accidental tap. Missing/
+  // blank/anything else all mean the same thing: stay off (the safe
+  // default), no separate hasArg() check needed.
+  String relayConfirm = server.arg("wifi_relay_confirm");
+  relayConfirm.trim();
+  bool wifiStationMode = relayConfirm.equalsIgnoreCase("relay");
+
   // Applied to the in-memory settings immediately either way — none of
   // these influence a firing/fault decision already in flight, so there's
   // no safety reason to gate the RAM update on armed state. Only the flash
@@ -562,6 +574,7 @@ void handleConfigPost() {
   settings.lowVoltageLockoutEnabled = lvLockout;
   newSsid.toCharArray(settings.wifiSsid, sizeof(settings.wifiSsid));
   newPassword.toCharArray(settings.wifiPassword, sizeof(settings.wifiPassword));
+  settings.wifiStationMode = wifiStationMode;
 
   bool saved = saveSettings();
   if (!saved) {
@@ -637,7 +650,25 @@ void setup() {
 #endif
 
   analogReadResolution(12);
-  loadSettings();
+
+  // Factory reset: ground PIN_FACTORY_RESET before power-up to force all
+  // settings back to their compiled-in defaults. Checked once, here, before
+  // the normal load — a handful of reads over a couple ms rather than a
+  // single instantaneous one, so a pin that's floating/settling right after
+  // pinMode() (or a marginal/bouncing jumper) doesn't trigger a reset.
+  pinMode(PIN_FACTORY_RESET, INPUT_PULLUP);
+  bool factoryReset = true;
+  for (int i = 0; i < 5; i++) {
+    if (digitalRead(PIN_FACTORY_RESET) == HIGH) { factoryReset = false; break; }
+    delay(1);
+  }
+  if (factoryReset) {
+    resetSettingsToDefaults();
+    saveSettings();
+    Serial.println("[settings] PIN_FACTORY_RESET held low at boot - reset to factory defaults");
+  } else {
+    loadSettings();
+  }
 
   // Must exist before the ISR can notify it. Pinned to core 0, opposite the
   // Arduino loop/WebServer work (core 1 by default), so it doesn't have to
@@ -654,13 +685,46 @@ void setup() {
   if (digitalRead(PIN_FAULT) == LOW) faultLatched = true;
   attachInterrupt(digitalPinToInterrupt(PIN_FAULT), onFaultISR, FALLING);
 
-  WiFi.persistent(false);  // avoid NVS flash writes for AP config while the board may be armed
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(settings.wifiSsid, settings.wifiPassword);
-  Serial.print("[wifi] AP \"");
-  Serial.print(settings.wifiSsid);
-  Serial.print("\" up, browse to http://");
-  Serial.println(WiFi.softAPIP());
+  WiFi.persistent(false);  // avoid NVS flash writes for WiFi config while the board may be armed
+
+  bool staConnected = false;
+  if (settings.wifiStationMode) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(settings.wifiSsid, settings.wifiPassword);
+    Serial.print("[wifi] station mode, connecting to \"");
+    Serial.print(settings.wifiSsid);
+    Serial.print("\"");
+    uint32_t staStartMs = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - staStartMs) < WIFI_STA_CONNECT_TIMEOUT_MS) {
+      delay(250);
+      Serial.print(".");
+    }
+    Serial.println();
+    staConnected = (WiFi.status() == WL_CONNECTED);
+    if (staConnected) {
+      Serial.print("[wifi] connected, browse to http://");
+      Serial.println(WiFi.localIP());
+    } else {
+      Serial.println("[wifi] station connect failed or timed out - falling back to hosting an AP");
+    }
+  }
+
+  if (!staConnected) {
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(settings.wifiSsid, settings.wifiPassword);
+    Serial.print("[wifi] AP \"");
+    Serial.print(settings.wifiSsid);
+    Serial.print("\" up, browse to http://");
+    Serial.println(WiFi.softAPIP());
+  }
+
+  // Same fixed name in either mode: a fixed IP (192.168.4.1) already makes
+  // this redundant in AP mode, but station mode gets a DHCP-assigned IP
+  // that isn't predictable, so this is the one thing that's the same
+  // "http://boomslang.local" regardless of which mode ended up active.
+  if (MDNS.begin("boomslang")) {
+    Serial.println("[wifi] mDNS responder started: http://boomslang.local");
+  }
 
   server.on("/", handleRoot);
   server.on("/status.json", handleStatus);

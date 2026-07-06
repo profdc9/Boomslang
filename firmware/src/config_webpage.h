@@ -78,6 +78,13 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
   <div class="hint">This password is the device's only access control — anyone who has it can arm and fire. Leave it blank for an open, unencrypted network (not recommended). Changes here take effect only after the device is power-cycled or reset — you'll need to reconnect using the new name/password afterward.</div>
 </div>
 
+<div class="card">
+  <strong>WiFi relay (station) mode</strong>
+  <div class="hint">By default this device hosts its own WiFi network (above). Instead, it can join an existing WiFi network as a client using that same SSID/password, to relay through your router when you need more distance between operator and pyrotechnics than the device's own AP range allows. If it can't connect, it falls back to hosting its own AP so you're never locked out.</div>
+  <div class="hint"><strong>Real security tradeoff:</strong> anyone who can reach that network can also reach this device. So this isn't a checkbox — type the word <code>relay</code> below to turn it on. Leave blank (or anything else) to keep hosting the device's own AP.</div>
+  <label>Type "relay" to enable <input type="text" id="wifiRelayConfirm" placeholder="relay to enable" autocomplete="off"></label>
+</div>
+
 <button class="save-btn" onclick="save()">Save</button>
 <button class="reset-btn" onclick="resetDefaults()">Reset to Defaults</button>
 <div id="status" class="status"></div>
@@ -112,6 +119,7 @@ async function loadConfig() {
   document.getElementById('lvLockout').checked = c.low_voltage_lockout_enabled;
   document.getElementById('wifiSsid').value = c.wifi_ssid;
   document.getElementById('wifiPassword').value = c.wifi_password;
+  document.getElementById('wifiRelayConfirm').value = c.wifi_station_mode ? 'relay' : '';
 }
 
 async function save() {
@@ -130,13 +138,14 @@ async function save() {
   // URI-encoded before going into a query string.
   const wifiSsid = encodeURIComponent(document.getElementById('wifiSsid').value);
   const wifiPassword = encodeURIComponent(document.getElementById('wifiPassword').value);
+  const wifiRelayConfirm = encodeURIComponent(document.getElementById('wifiRelayConfirm').value);
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
     `&arm_countdown_s=${countdown}&visible_when_armed=${visible}` +
     `&audible_when_armed=${audible}&require_rearm=${reqRearm}` +
     `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}` +
     `&low_battery_threshold_v=${lowBattV}&low_voltage_lockout_enabled=${lvLockout}` +
-    `&wifi_ssid=${wifiSsid}&wifi_password=${wifiPassword}`,
+    `&wifi_ssid=${wifiSsid}&wifi_password=${wifiPassword}&wifi_relay_confirm=${wifiRelayConfirm}`,
     { method: 'POST' });
   showStatus(await resp.json());
 }
