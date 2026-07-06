@@ -4,6 +4,55 @@ A 3-channel ESP32-S3 pyrotechnic/model-rocket ignition controller. Hardware
 (KiCad project, schematic, gerbers) is under `Boomslang/`; firmware is under
 `firmware/` (PlatformIO, Arduino framework).
 
+## Overcurrent fault protection
+
+Each channel's IRLZ44N MOSFET has its own analog overcurrent comparator
+(transistors Q5/Q10/Q16, sensing the 0.05Ω source shunt) that pulls that
+channel's own gate to GND in hardware, in nanoseconds, with **no firmware
+involved at all**. That's the actual protection for the transistor. All
+three channels' comparators also pull a single shared, open-collector,
+active-LOW `FAULT` line (GPIO1) — since it's wired-OR across all three,
+firmware can tell *that* a channel faulted, but not *which* one.
+
+**The fault ISR** (`onFaultISR` in `firmware/src/main.cpp`) is a level-1
+`attachInterrupt` on `FAULT`, `IRAM_ATTR`, and deliberately minimal: it does
+exactly two things, a single register write forcing all three TRIGGER
+outputs HIGH at once (not just the channel that faulted — the shared line
+can't tell which one anyway, so every channel is shut down for consistency)
+and setting a sticky `faultLatched` flag. Nothing else runs in the ISR
+itself — no `Serial`, no heap, and critically no `analogRead()`, since the
+ESP-IDF ADC driver takes a FreeRTOS mutex internally that `loop()` is
+already holding on a regular basis; taking it again from ISR context would
+be undefined behavior.
+
+**Sampling SENSE for diagnostics** (which channel was drawing how much
+current right as the fault hit) therefore happens in a separate,
+dedicated FreeRTOS task (`faultSampleTask`), woken by the ISR via
+`vTaskNotifyGiveFromISR`/`portYIELD_FROM_ISR` so it runs essentially the
+instant the ISR returns, ahead of `loop()` or anything else. It's pinned to
+the core opposite the Arduino loop/web server, at a priority high enough to
+preempt normal code but below WiFi's own internal tasks. This snapshot is
+best-effort — the hardware protection may have already cut current before
+it runs — and is exposed as `fault_snapshot_a` in `/status.json` and shown
+in the FAULT banner on the control page.
+
+**Clearing a fault**: `faultLatched` is a software latch, not
+self-clearing — `/clear_fault` re-checks the hardware `FAULT` line itself
+(several reads over ~2ms, so a line chattering right at the trip point
+doesn't get cleared into a still-live fault) and refuses if it's still
+asserted. A reboot doesn't clear a persistent fault either: `FAULT` is
+checked at boot, before the ISR is even attached, and latches immediately
+if still asserted.
+
+Why a plain level-1 interrupt is enough: the IRLZ44N's SOA tolerates ~1ms at
+full overcurrent, and even level-1 ISR latency on this chip is reliably
+single-digit microseconds — comfortably inside that margin, especially
+given the hardware analog protection has already started cutting current
+before the ISR even runs. A `DEBUG_FAULT_TIMING` build flag (on by default
+in `config.h`) toggles a spare pin (GPIO13) around ISR entry and the end of
+SENSE sampling, so real end-to-end latency can be measured on a scope once
+hardware exists.
+
 ## Audible / visible arming indicators
 
 The board carries a buzzer output (`J6`, driven via `AUDIBLE`/GPIO41) and
