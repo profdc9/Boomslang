@@ -40,6 +40,10 @@ float sampleBatteryVoltage() {
   return (analogRead(PIN_BATTERY) / (float)ADC_MAX) * ADC_VREF * BATTERY_DIVIDER_RATIO;
 }
 
+bool lowVoltageLockoutActive() {
+  return settings.lowVoltageLockoutEnabled && sampleBatteryVoltage() < settings.lowBatteryThresholdV;
+}
+
 }  // namespace
 
 void updateArmState() {
@@ -57,8 +61,7 @@ void updateArmState() {
   switch (state) {
     case ArmState::DISARMED:
       if (debouncedArmed) {
-        if (settings.lowVoltageLockoutEnabled &&
-            sampleBatteryVoltage() < settings.lowBatteryThresholdV) {
+        if (lowVoltageLockoutActive()) {
           // Switch is closed, but voltage is too low — hold in DISARMED.
           // Recomputed every call, so this clears itself the instant
           // voltage recovers (arming then proceeds next iteration) without
@@ -79,7 +82,11 @@ void updateArmState() {
       break;
 
     case ArmState::COUNTDOWN:
-      if (!debouncedArmed) {
+      // Voltage dropping below threshold mid-countdown forces a disarm,
+      // same as the switch opening — if the switch is still closed and
+      // voltage is still low, the DISARMED case above picks that up as
+      // lowVBlocking on the very next iteration.
+      if (!debouncedArmed || lowVoltageLockoutActive()) {
         state = ArmState::DISARMED;
       } else if ((int32_t)(now - countdownEndsAtMs) >= 0) {
         state = ArmState::READY;
@@ -87,7 +94,7 @@ void updateArmState() {
       break;
 
     case ArmState::READY:
-      if (!debouncedArmed) {
+      if (!debouncedArmed || lowVoltageLockoutActive()) {
         state = ArmState::DISARMED;
       }
       break;

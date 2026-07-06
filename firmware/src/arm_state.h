@@ -35,8 +35,11 @@ void notifyContinuityCheckFailed();
 
 // True when the arm switch is physically closed but settings.lowVoltage-
 // LockoutEnabled and battery_v < settings.lowBatteryThresholdV are keeping
-// the device in DISARMED rather than transitioning to COUNTDOWN. Live, not
-// latched — recomputed every updateArmState() call, so it clears itself
-// the instant voltage recovers (arming then proceeds normally) or the arm
-// switch is opened.
+// the device in DISARMED rather than transitioning to COUNTDOWN — either
+// because it never armed in the first place, or because voltage dropped
+// below threshold while already in COUNTDOWN/READY and forced a disarm
+// (same lockout, checked continuously in every state, not just at the
+// initial arming transition). Live, not latched — recomputed every
+// updateArmState() call, so it clears itself the instant voltage recovers
+// (arming then proceeds normally) or the arm switch is opened.
 bool lowVoltageBlockingArm();
