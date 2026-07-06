@@ -8,6 +8,7 @@
 #include "config.h"
 #include "settings.h"
 #include "webpage.h"
+#include "config_webpage.h"
 
 WebServer server(80);
 
@@ -183,6 +184,63 @@ void handleVisible() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
+void handleConfigPage() {
+  server.send_P(200, "text/html", CONFIG_HTML);
+}
+
+void handleConfigGet() {
+  String out = "{\"sense_ohms\":[";
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    if (i) out += ",";
+    out += String(settings.senseOhms[i], 4);
+  }
+  out += "]}";
+  server.send(200, "application/json", out);
+}
+
+void handleConfigPost() {
+  float newSenseOhms[NUM_CHANNELS];
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    char key[16];
+    snprintf(key, sizeof(key), "sense_ohm%d", i);
+    if (!server.hasArg(key)) {
+      server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing " + String(key) + "\"}");
+      return;
+    }
+    float v = server.arg(key).toFloat();
+    if (v < 0.001f || v > 10.0f) {
+      server.send(400, "application/json", "{\"ok\":false,\"error\":\"" + String(key) + " out of range (0.001-10 ohm)\"}");
+      return;
+    }
+    newSenseOhms[i] = v;
+  }
+
+  // Applied to the in-memory reading immediately either way — this only
+  // scales a diagnostic current display, it doesn't influence any firing or
+  // fault decision, so there's no safety reason to gate it on armed state.
+  // Only the flash write itself needs that gate.
+  for (int i = 0; i < NUM_CHANNELS; i++) settings.senseOhms[i] = newSenseOhms[i];
+
+  bool saved = saveSettings();
+  if (!saved) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"applied, but not saved to flash - disarm to persist\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleConfigReset() {
+  resetSettingsToDefaults();
+  bool saved = saveSettings();
+  if (!saved) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"reset in memory, but not saved to flash - disarm to persist\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
 void handleClearFault() {
   // Re-check the hardware line several times over ~2ms rather than trusting
   // one instantaneous read, so a line chattering right at the comparator's
@@ -267,6 +325,10 @@ void setup() {
   server.on("/audible", HTTP_POST, handleAudible);
   server.on("/visible", HTTP_POST, handleVisible);
   server.on("/clear_fault", HTTP_POST, handleClearFault);
+  server.on("/config", HTTP_GET, handleConfigPage);
+  server.on("/config.json", HTTP_GET, handleConfigGet);
+  server.on("/config", HTTP_POST, handleConfigPost);
+  server.on("/config/reset", HTTP_POST, handleConfigReset);
   server.begin();
 }
 

@@ -24,6 +24,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .fire-btn:disabled { background:#555; color:#999; }
   .aux button { margin-right:8px; background:#333; color:#eee; padding:8px 14px; }
   .small { font-size:0.85em; color:#999; }
+  a { color:#8ab4ff; }
 </style>
 </head>
 <body>
@@ -38,6 +39,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   <button onclick="clearFault()">Clear Fault Latch</button>
 </div>
 <p class="small">Firing pulls trigger low for a fixed pulse, then releases automatically. Continuity must read OK and the system must be ARMED (arm key at J5 closed) before a fire command is accepted.</p>
+<p class="small"><a href="/config">Settings &rarr;</a></p>
 
 <script>
 async function refresh() {
