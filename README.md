@@ -125,6 +125,29 @@ opened and closed again (a fresh disarm + countdown + `READY`). With it off,
 another TRIGGER is accepted as soon as the current sequence finishes, no
 rearm needed.
 
+## ABORT and PANIC buttons
+
+Two more buttons sit below TRIGGER on the main control page, both backed by
+a shared `stopSequence()` helper (`firmware/src/main.cpp`) that stops
+things *immediately* — any channel mid-pulse has its trigger pin forced
+back HIGH right away rather than waiting out the rest of the fire pulse,
+and anything still scheduled (waiting on its configured delay) is
+cancelled. Neither has a confirm dialog on the frontend, and neither is
+gated on any precondition — an abort/panic button should always just work,
+the instant it's tapped, like a real E-stop.
+
+**ABORT** (`/abort`) just stops the sequence. It does **not** prevent
+retriggering — if the device is still armed and ready afterward, TRIGGER is
+available again immediately. Only enabled on the control page while a
+sequence is actually running, since it has nothing to do otherwise.
+
+**PANIC** (`/panic`) does the same immediate stop, and *additionally*
+always sets a new lockout (`panicLockedOut()` in `arm_state`) requiring a
+full disarm and rearm before another TRIGGER is accepted — unconditionally,
+independent of `requireRearmAfterFire`, and regardless of whether anything
+was actually firing when it was pressed. Always enabled on the control
+page, since pressing it has an effect either way.
+
 ## Continuity checks
 
 `CONTINUITY1/2/3` sense the same way `SENSEFAILSAFE` does: ~1mA through a red
