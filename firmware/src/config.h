@@ -18,6 +18,7 @@ constexpr int PIN_SENSE_FAILSAFE = 4;  // arm-loop (J5) presence sense, same LED
 constexpr int PIN_FAULT          = 1;  // shared hardware overcurrent fault, active LOW, open-collector
 constexpr int PIN_AUDIBLE        = 41; // buzzer driver (J6)
 constexpr int PIN_VISIBLE        = 42; // onboard white/blue strobe LEDs
+constexpr int PIN_BATTERY        = 2;  // 12V supply, through a 1:11 resistor divider
 
 // ADC scaling: 12-bit, 3.3V reference, 11dB attenuation.
 constexpr float ADC_VREF   = 3.3f;
@@ -37,6 +38,11 @@ constexpr int FAILSAFE_OK_RAW   = CONTINUITY_OK_RAW;
 // shunt value itself is a runtime-configurable setting (see settings.h), not
 // a compile-time constant — it's field-replaceable hardware.
 
+// Battery/supply voltage sense: PIN_BATTERY sees the 12V rail through a
+// fixed 1:11 resistor divider (a PCB-fixed ratio, not field-replaceable
+// like the current-sense shunts, so this is a compile-time constant).
+constexpr float BATTERY_DIVIDER_RATIO = 11.0f;
+
 // A fire command pulses TRIGGER low for this long, then releases it HIGH
 // regardless of what the software is doing — this bounds worst-case
 // energy delivered to the igniter and battery drain if anything hangs.
@@ -54,4 +60,9 @@ constexpr char AP_PASSWORD[] = "firework123";
 // a field build — it's harmless left on (one extra register write in the
 // ISR, negligible), but there's no reason to carry it once timing is known.
 #define DEBUG_FAULT_TIMING 1
-constexpr int PIN_DEBUG_TIMING = 2;  // spare header pin, unconnected on the PCB
+// GPIO13 rather than an ADC1 pin like GPIO2 — this signal is purely
+// digital, so it's worth leaving ADC-capable header pins free for actual
+// analog sensing. GPIO13 is only on ADC2 (which conflicts with WiFi and so
+// isn't a pin you'd want for real analog use anyway), and is otherwise
+// unconnected on the PCB.
+constexpr int PIN_DEBUG_TIMING = 13;

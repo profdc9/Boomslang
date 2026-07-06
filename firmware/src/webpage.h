@@ -41,11 +41,13 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .aux { margin-top:14px; }
   .aux button { background:#333; color:#eee; font-size:1em; padding:14px; }
   .small { font-size:0.9em; color:#999; margin-top:14px; text-align:center; }
+  .battery { font-size:0.9em; color:#999; margin:-4px 0 12px; text-align:center; }
 </style>
 </head>
 <body>
 <h1>Boomslang</h1>
 <div id="banner" class="banner disarmed">loading...</div>
+<p class="battery" id="battery">Battery: -- V</p>
 <div id="channels"></div>
 <button class="trigger-btn" id="triggerBtn" disabled onclick="doTrigger()">TRIGGER</button>
 <div class="aux">
@@ -60,6 +62,8 @@ async function refresh() {
   let r;
   try { r = await (await fetch('/status.json')).json(); }
   catch (e) { document.getElementById('banner').textContent = 'connection lost'; return; }
+
+  document.getElementById('battery').textContent = `Battery: ${r.battery_v.toFixed(1)} V`;
 
   const banner = document.getElementById('banner');
   if (r.fault) {

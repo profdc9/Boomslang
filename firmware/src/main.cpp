@@ -40,6 +40,9 @@ ChannelState channels[NUM_CHANNELS];
 // iteration, so it clears itself the instant the problem is fixed.
 bool armContinuityError = false;
 
+// Rolling battery/supply voltage reading, refreshed each loop() iteration.
+float batteryVoltage = 0.0f;
+
 // True from an accepted /trigger until every scheduled channel has either
 // fired (and its pulse ended) or been skipped. Blocks a second /trigger
 // regardless of settings.requireRearmAfterFire — you can never have two
@@ -130,6 +133,12 @@ bool hasContinuity(int ch) {
   return analogRead(PIN_CONTINUITY[ch]) > CONTINUITY_OK_RAW;
 }
 
+float readBatteryVoltage() {
+  int raw = analogRead(PIN_BATTERY);
+  float v = (raw / (float)ADC_MAX) * ADC_VREF;
+  return v * BATTERY_DIVIDER_RATIO;
+}
+
 void startFirePulse(int ch) {
   channels[ch].fireActive = true;
   channels[ch].fireEndsAt = millis() + FIRE_PULSE_MS;
@@ -158,6 +167,8 @@ void buildStatusJson(String &out) {
   out += (settings.checkContinuityOnArm && st != ArmState::DISARMED) ? "true" : "false";
   out += ",\"sequence_active\":";
   out += (sequenceActive ? "true" : "false");
+  out += ",\"battery_v\":";
+  out += String(batteryVoltage, 2);
   out += ",\"fault\":";
   out += (faultLatched ? "true" : "false");
   out += ",\"fault_snapshot_valid\":";
@@ -450,6 +461,7 @@ void setup() {
     pinMode(PIN_SENSE[i], INPUT);
   }
   pinMode(PIN_SENSE_FAILSAFE, INPUT_PULLDOWN);
+  pinMode(PIN_BATTERY, INPUT);  // always driven by the resistor divider, no pull needed
 
 #if DEBUG_FAULT_TIMING
   pinMode(PIN_DEBUG_TIMING, OUTPUT);
@@ -511,6 +523,8 @@ void loop() {
     // shunt is permanently tied to GND.
     channels[i].lastCurrentA = readCurrentA(i);
   }
+
+  batteryVoltage = readBatteryVoltage();
 
   // Scheduled-fire pass for the current trigger sequence (if any).
   for (int i = 0; i < NUM_CHANNELS; i++) {
