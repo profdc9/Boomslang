@@ -43,3 +43,18 @@ void notifyContinuityCheckFailed();
 // updateArmState() call, so it clears itself the instant voltage recovers
 // (arming then proceeds normally) or the arm switch is opened.
 bool lowVoltageBlockingArm();
+
+// Tell the arm state machine whether a trigger sequence is currently
+// running, so the audible tone can go continuous (same frequency as the
+// current state, no on/off pulsing) as a distinct "firing in progress" cue
+// while it's true. The strobe LED keeps its normal blink pattern either
+// way. Call every loop() iteration, before updateArmState().
+void setSequenceActive(bool active);
+
+// Independent of triggerLockedOut()/continuityLockedOut(): set whenever the
+// PANIC button is pressed, unconditionally requiring a fresh disarm+rearm
+// before another TRIGGER is accepted, regardless of requireRearmAfterFire.
+// Cleared at the same point the other lockouts are (arm switch detected
+// open, then closed again).
+bool panicLockedOut();
+void notifyPanicPressed();

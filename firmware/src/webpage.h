@@ -38,6 +38,11 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   button { font-size:1.1em; padding:16px; border-radius:12px; border:none; font-weight:700; width:100%; }
   .trigger-btn { background:#c0392b; color:#fff; margin-top:8px; }
   .trigger-btn:disabled { background:#444; color:#888; }
+  .stop-row { display:flex; gap:10px; margin-top:10px; }
+  .stop-row button { width:auto; flex:1; }
+  .abort-btn { background:#c9821a; color:#fff; }
+  .abort-btn:disabled { background:#444; color:#888; }
+  .panic-btn { background:#7a0000; color:#fff; }
   .aux { margin-top:14px; }
   .aux button { background:#333; color:#eee; font-size:1em; padding:14px; }
   .small { font-size:0.9em; color:#999; margin-top:14px; text-align:center; }
@@ -51,6 +56,10 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <p class="battery" id="battery">Battery: -- V</p>
 <div id="channels"></div>
 <button class="trigger-btn" id="triggerBtn" disabled onclick="doTrigger()">TRIGGER</button>
+<div class="stop-row">
+  <button class="abort-btn" id="abortBtn" disabled onclick="doAbort()">ABORT</button>
+  <button class="panic-btn" id="panicBtn" onclick="doPanic()">PANIC</button>
+</div>
 <div class="aux">
   <button onclick="clearFault()">Clear Fault Latch</button>
 </div>
@@ -78,6 +87,9 @@ async function refresh() {
       const s = r.fault_snapshot_a;
       banner.textContent += ` (${s[0].toFixed(2)}A ${s[1].toFixed(2)}A ${s[2].toFixed(2)}A)`;
     }
+  } else if (r.panic_locked) {
+    banner.className = 'banner contwarn';
+    banner.textContent = 'PANIC pressed — disarm & rearm required before triggering again.';
   } else if (r.continuity_locked) {
     banner.className = 'banner contwarn';
     banner.textContent = 'Continuity check failed at trigger — nothing fired. Disarm & rearm to clear.';
@@ -108,8 +120,13 @@ async function refresh() {
   }
 
   const canTrigger = r.arm_state === 'ready' && !r.fault && !r.sequence_active &&
-                     !r.trigger_locked && !r.continuity_locked && !r.arm_continuity_error;
+                     !r.trigger_locked && !r.continuity_locked && !r.panic_locked &&
+                     !r.arm_continuity_error;
   document.getElementById('triggerBtn').disabled = !canTrigger;
+  // ABORT only does anything while a sequence is running; PANIC always has
+  // an effect (it sets the disarm/rearm requirement even with nothing
+  // firing), so it stays enabled regardless of state.
+  document.getElementById('abortBtn').disabled = !r.sequence_active;
 }
 
 function buildChannels(r) {
@@ -171,6 +188,20 @@ async function doTrigger() {
   const resp = await fetch('/trigger?confirm=1', { method: 'POST' });
   const j = await resp.json();
   if (!j.ok) alert('Not triggered: ' + (j.error || 'unknown error'));
+  refresh();
+}
+
+// Deliberately no confirm() dialog for either of these — an abort/panic
+// button should always act instantly, with zero friction, unlike TRIGGER.
+async function doAbort() {
+  const resp = await fetch('/abort', { method: 'POST' });
+  await resp.json();
+  refresh();
+}
+
+async function doPanic() {
+  const resp = await fetch('/panic', { method: 'POST' });
+  await resp.json();
   refresh();
 }
 

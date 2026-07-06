@@ -20,13 +20,16 @@ bool debouncedArmed = false;  // last debounce-committed reading
 bool rawArmedPrev = false;    // last raw sample, for edge detection
 uint32_t rawChangedAtMs = 0;
 
-bool locked = false;      // post-fire lockout (requireRearmAfterFire)
-bool contLocked = false;  // pre-trigger continuity-check-failed lockout
+bool locked = false;       // post-fire lockout (requireRearmAfterFire)
+bool contLocked = false;   // pre-trigger continuity-check-failed lockout
+bool panicLocked = false;  // PANIC button pressed
 
 bool blinkOn = false;
 uint32_t lastBlinkToggleMs = 0;
 
 bool lowVBlocking = false;  // live: switch closed, but low-voltage lockout is holding DISARMED
+
+bool sequenceActiveFlag = false;  // set via setSequenceActive(), from main.cpp
 
 bool sampleRawArmed() {
   return analogRead(PIN_SENSE_FAILSAFE) > FAILSAFE_OK_RAW;
@@ -72,9 +75,11 @@ void updateArmState() {
           state = ArmState::COUNTDOWN;
           countdownEndsAtMs = now + settings.armCountdownSec * 1000UL;
           // Being here at all means the arm switch was open — that's the
-          // "disarm" half of "disarm and rearm" satisfied, for both lockouts.
+          // "disarm" half of "disarm and rearm" satisfied, for all three
+          // lockouts.
           locked = false;
           contLocked = false;
+          panicLocked = false;
         }
       } else {
         lowVBlocking = false;
@@ -117,7 +122,13 @@ void updateArmState() {
   }
 
   digitalWrite(PIN_VISIBLE, (settings.visibleWhenArmed && blinkOn) ? HIGH : LOW);
-  if (settings.audibleWhenArmed && blinkOn) {
+
+  // While a trigger sequence is running, the tone goes continuous — same
+  // frequency as the current state, no on/off pulsing — as a distinct
+  // "firing in progress" cue. The strobe above keeps its normal blink
+  // pattern regardless.
+  bool audibleOn = sequenceActiveFlag ? true : blinkOn;
+  if (settings.audibleWhenArmed && audibleOn) {
     tone(PIN_AUDIBLE, toneHz);
   } else {
     noTone(PIN_AUDIBLE);
@@ -144,3 +155,9 @@ bool continuityLockedOut() { return contLocked; }
 void notifyContinuityCheckFailed() { contLocked = true; }
 
 bool lowVoltageBlockingArm() { return lowVBlocking; }
+
+void setSequenceActive(bool active) { sequenceActiveFlag = active; }
+
+bool panicLockedOut() { return panicLocked; }
+
+void notifyPanicPressed() { panicLocked = true; }

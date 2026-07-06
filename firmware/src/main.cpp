@@ -146,6 +146,21 @@ void startFirePulse(int ch) {
   Serial.printf("[fire] channel %d fired\n", ch + 1);
 }
 
+// Immediately stops any channel mid-pulse (forces its trigger back HIGH
+// right away, rather than waiting out the rest of FIRE_PULSE_MS) and
+// cancels anything still scheduled. Used by ABORT, PANIC, and fault
+// handling — none of them wait for the normal pulse timeout in loop().
+void stopSequence() {
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    if (channels[i].fireActive) {
+      digitalWrite(PIN_TRIGGER[i], HIGH);
+      channels[i].fireActive = false;
+    }
+    channels[i].scheduled = false;
+  }
+  sequenceActive = false;
+}
+
 void buildStatusJson(String &out) {
   ArmState st = getArmState();
   const char *stateStr = st == ArmState::DISARMED   ? "disarmed"
@@ -161,6 +176,8 @@ void buildStatusJson(String &out) {
   out += (settings.requireRearmAfterFire && triggerLockedOut()) ? "true" : "false";
   out += ",\"continuity_locked\":";
   out += (continuityLockedOut() ? "true" : "false");
+  out += ",\"panic_locked\":";
+  out += (panicLockedOut() ? "true" : "false");
   out += ",\"arm_continuity_error\":";
   out += (armContinuityError ? "true" : "false");
   out += ",\"selection_locked\":";
@@ -260,6 +277,11 @@ void handleTrigger() {
                 "{\"ok\":false,\"error\":\"continuity check failed at last trigger - disarm and rearm\"}");
     return;
   }
+  if (panicLockedOut()) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"panic pressed - disarm and rearm before triggering again\"}");
+    return;
+  }
   if (armContinuityError) {
     server.send(409, "application/json",
                 "{\"ok\":false,\"error\":\"continuity problem on a selected channel\"}");
@@ -299,6 +321,30 @@ void handleTrigger() {
 
   sequenceActive = true;
   notifyTriggerAccepted();
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// Stops an in-progress sequence immediately but does NOT lock out
+// retriggering — if still armed and ready, TRIGGER can be pressed again
+// right away. Deliberately no confirm() required on the frontend and no
+// gating here: an abort button should always just work.
+void handleAbort() {
+  bool wasActive = sequenceActive;
+  stopSequence();
+  Serial.printf("[abort] sequence %s\n", wasActive ? "stopped" : "was not active");
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+// Stops an in-progress sequence immediately, same as abort, but always
+// (whether or not anything was firing) imposes a hard disarm+rearm lockout
+// via notifyPanicPressed(), independent of requireRearmAfterFire. Also
+// deliberately no confirm() and no gating — a panic button should always
+// just work.
+void handlePanic() {
+  bool wasActive = sequenceActive;
+  stopSequence();
+  notifyPanicPressed();
+  Serial.printf("[panic] sequence %s, disarm+rearm now required\n", wasActive ? "stopped" : "was not active");
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -519,6 +565,8 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/status.json", handleStatus);
   server.on("/trigger", HTTP_POST, handleTrigger);
+  server.on("/abort", HTTP_POST, handleAbort);
+  server.on("/panic", HTTP_POST, handlePanic);
   server.on("/select", HTTP_POST, handleSelect);
   server.on("/channel_delay", HTTP_POST, handleChannelDelay);
   server.on("/clear_fault", HTTP_POST, handleClearFault);
@@ -531,6 +579,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  setSequenceActive(sequenceActive);
   updateArmState();
 
   uint32_t now = millis();
@@ -594,13 +643,10 @@ void loop() {
   if (!faultLatched && digitalRead(PIN_FAULT) == LOW) faultLatched = true;
 
   // On the transition into a fault: nothing should still claim to be
-  // "firing" since the ISR already forced every trigger pin high.
+  // "firing" since the ISR already forced every trigger pin high (the
+  // digitalWrite() inside stopSequence() is redundant here but harmless).
   if (faultLatched && !faultLatchedPrev) {
-    for (int i = 0; i < NUM_CHANNELS; i++) {
-      channels[i].fireActive = false;
-      channels[i].scheduled = false;
-    }
-    sequenceActive = false;
+    stopSequence();
     Serial.printf("[fault] latched at t=%lu ms\n", (unsigned long)now);
   }
   faultLatchedPrev = faultLatched;
