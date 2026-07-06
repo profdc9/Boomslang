@@ -52,6 +52,14 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
   <div class="checkrow"><span>Require disarm+rearm before re-triggering</span><input type="checkbox" id="reqRearm"></div>
 </div>
 
+<div class="card">
+  <strong>Continuity checks</strong>
+  <div class="checkrow"><span>Check selected channels' continuity while armed</span><input type="checkbox" id="contOnArm"></div>
+  <div class="hint">Live check while armed — clears itself as soon as it's fixed, no disarm needed. Also locks channel selection while armed (must disarm to change which channels are selected).</div>
+  <div class="checkrow"><span>Check continuity immediately before triggering</span><input type="checkbox" id="contBeforeTrig"></div>
+  <div class="hint">Stricter: a failure here fires nothing and requires a full disarm+rearm before another trigger, regardless of the setting above.</div>
+</div>
+
 <button class="save-btn" onclick="save()">Save</button>
 <button class="reset-btn" onclick="resetDefaults()">Reset to Defaults</button>
 <div id="status" class="status"></div>
@@ -80,6 +88,8 @@ async function loadConfig() {
   document.getElementById('visibleArmed').checked = c.visible_when_armed;
   document.getElementById('audibleArmed').checked = c.audible_when_armed;
   document.getElementById('reqRearm').checked = c.require_rearm;
+  document.getElementById('contOnArm').checked = c.check_continuity_on_arm;
+  document.getElementById('contBeforeTrig').checked = c.check_continuity_before_trigger;
 }
 
 async function save() {
@@ -90,10 +100,13 @@ async function save() {
   const visible = document.getElementById('visibleArmed').checked ? '1' : '0';
   const audible = document.getElementById('audibleArmed').checked ? '1' : '0';
   const reqRearm = document.getElementById('reqRearm').checked ? '1' : '0';
+  const contOnArm = document.getElementById('contOnArm').checked ? '1' : '0';
+  const contBeforeTrig = document.getElementById('contBeforeTrig').checked ? '1' : '0';
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
     `&arm_countdown_s=${countdown}&visible_when_armed=${visible}` +
-    `&audible_when_armed=${audible}&require_rearm=${reqRearm}`,
+    `&audible_when_armed=${audible}&require_rearm=${reqRearm}` +
+    `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}`,
     { method: 'POST' });
   showStatus(await resp.json());
 }

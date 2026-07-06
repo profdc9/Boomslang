@@ -23,15 +23,14 @@ constexpr int PIN_VISIBLE        = 42; // onboard white/blue strobe LEDs
 constexpr float ADC_VREF   = 3.3f;
 constexpr int   ADC_MAX    = 4095;
 
-// CONTINUITY and SENSE_FAILSAFE both read a node clamped by an LED forward
-// drop (~1.8-2.2V) when the sensed loop is intact, and float near 0V when
-// open. The threshold sits well below the clamp voltage and well above
-// ADC noise / leakage on an open loop.
-constexpr int CONTINUITY_OK_RAW   = 600;  // ~0.48V
-
-// Arm-loop (J5) detect threshold, ~1.0V per the same LED-clamp scheme.
-constexpr float FAILSAFE_ARM_VOLTS = 1.0f;
-constexpr int FAILSAFE_OK_RAW = (int)(FAILSAFE_ARM_VOLTS / ADC_VREF * ADC_MAX);
+// CONTINUITY and SENSE_FAILSAFE both work by pushing ~1mA through a red LED
+// and reading the clamped voltage across it: that LED's forward voltage
+// exceeds ~1.5V when the sensed loop (igniter or arm switch) is actually
+// closed, and the node floats near 0V when open. Same circuit, same
+// threshold, for both.
+constexpr float LED_CLAMP_ARM_VOLTS = 1.5f;
+constexpr int CONTINUITY_OK_RAW = (int)(LED_CLAMP_ARM_VOLTS / ADC_VREF * ADC_MAX);
+constexpr int FAILSAFE_OK_RAW   = CONTINUITY_OK_RAW;
 
 // Firing current sense: SENSE node voltage = I_fire * senseOhms[ch], direct
 // (no divider) since the ADC input draws negligible current. The per-channel

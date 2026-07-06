@@ -33,6 +33,8 @@ void loadSettings() {
   settings.visibleWhenArmed = prefs.getBool("visibleArmed", settings.visibleWhenArmed);
   settings.audibleWhenArmed = prefs.getBool("audibleArmed", settings.audibleWhenArmed);
   settings.requireRearmAfterFire = prefs.getBool("reqRearm", settings.requireRearmAfterFire);
+  settings.checkContinuityOnArm = prefs.getBool("contOnArm", settings.checkContinuityOnArm);
+  settings.checkContinuityBeforeTrigger = prefs.getBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
   prefs.end();
 }
 
@@ -56,6 +58,8 @@ bool saveSettings() {
   prefs.putBool("visibleArmed", settings.visibleWhenArmed);
   prefs.putBool("audibleArmed", settings.audibleWhenArmed);
   prefs.putBool("reqRearm", settings.requireRearmAfterFire);
+  prefs.putBool("contOnArm", settings.checkContinuityOnArm);
+  prefs.putBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
   prefs.end();
   return true;
 }

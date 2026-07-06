@@ -32,6 +32,17 @@ struct Settings {
   // Per-channel delay (seconds) from a TRIGGER press to that channel's fire
   // pulse, for sequencing multiple channels off one trigger.
   float channelDelaySec[NUM_CHANNELS] = {0.0f, 0.0f, 0.0f};
+
+  // While armed, continuously verify every selected channel still has
+  // continuity; if not, block triggering (self-clears the instant it's
+  // fixed, or the feature is turned off — no disarm needed for this one).
+  bool checkContinuityOnArm = true;
+
+  // Re-verify continuity for every selected channel at the instant TRIGGER
+  // is pressed; if any fail, fire nothing and require a full disarm+rearm
+  // before another TRIGGER is accepted, regardless of requireRearmAfterFire
+  // (that setting is about the post-success case; this is separate).
+  bool checkContinuityBeforeTrigger = true;
 };
 
 extern Settings settings;

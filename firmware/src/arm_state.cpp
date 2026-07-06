@@ -20,7 +20,8 @@ bool debouncedArmed = false;  // last debounce-committed reading
 bool rawArmedPrev = false;    // last raw sample, for edge detection
 uint32_t rawChangedAtMs = 0;
 
-bool locked = false;
+bool locked = false;      // post-fire lockout (requireRearmAfterFire)
+bool contLocked = false;  // pre-trigger continuity-check-failed lockout
 
 bool blinkOn = false;
 uint32_t lastBlinkToggleMs = 0;
@@ -49,8 +50,9 @@ void updateArmState() {
         state = ArmState::COUNTDOWN;
         countdownEndsAtMs = now + settings.armCountdownSec * 1000UL;
         // Being here at all means the arm switch was open — that's the
-        // "disarm" half of "disarm and rearm" satisfied.
+        // "disarm" half of "disarm and rearm" satisfied, for both lockouts.
         locked = false;
+        contLocked = false;
       }
       break;
 
@@ -107,3 +109,7 @@ bool triggerLockedOut() { return locked; }
 void notifyTriggerAccepted() {
   if (settings.requireRearmAfterFire) locked = true;
 }
+
+bool continuityLockedOut() { return contLocked; }
+
+void notifyContinuityCheckFailed() { contLocked = true; }

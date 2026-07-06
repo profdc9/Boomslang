@@ -25,6 +25,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .countdown { background:#4d4a1b; color:#fff3a6; }
   .ready { background:#1b4d1b; color:#a6ffa6; }
   .fault { background:#5a1414; color:#ffb3b3; }
+  .contwarn { background:#5a3a14; color:#ffcf9e; }
   .channel { background:#1c1c1c; border-radius:12px; padding:14px; margin-bottom:10px; }
   .ch-top { display:flex; align-items:center; gap:12px; }
   .ch-top label { display:flex; align-items:center; gap:10px; font-size:1.1em; font-weight:600; flex:1; }
@@ -68,6 +69,12 @@ async function refresh() {
       const s = r.fault_snapshot_a;
       banner.textContent += ` (${s[0].toFixed(2)}A ${s[1].toFixed(2)}A ${s[2].toFixed(2)}A)`;
     }
+  } else if (r.continuity_locked) {
+    banner.className = 'banner contwarn';
+    banner.textContent = 'Continuity check failed at trigger — nothing fired. Disarm & rearm to clear.';
+  } else if (r.arm_continuity_error) {
+    banner.className = 'banner contwarn';
+    banner.textContent = 'Continuity problem on a selected channel — fix wiring or disable the check in Settings.';
   } else if (r.arm_state === 'ready') {
     banner.className = 'banner ready';
     banner.textContent = r.trigger_locked
@@ -88,7 +95,8 @@ async function refresh() {
     updateChannels(r);
   }
 
-  const canTrigger = r.arm_state === 'ready' && !r.fault && !r.sequence_active && !r.trigger_locked;
+  const canTrigger = r.arm_state === 'ready' && !r.fault && !r.sequence_active &&
+                     !r.trigger_locked && !r.continuity_locked && !r.arm_continuity_error;
   document.getElementById('triggerBtn').disabled = !canTrigger;
 }
 
@@ -101,7 +109,7 @@ function buildChannels(r) {
     el.innerHTML = `
       <div class="ch-top">
         <label>
-          <input type="checkbox" id="sel${i}">
+          <input type="checkbox" id="sel${i}" ${c.selected ? 'checked' : ''} onchange="saveSelect(${i})">
           Channel ${i + 1}
         </label>
         <span class="dot" id="dot${i}"></span>
@@ -121,7 +129,18 @@ function updateChannels(r) {
     dot.className = 'dot ' + ((c.firing || c.scheduled) ? 'mid' : (c.continuity ? 'ok' : 'bad'));
     const state = c.firing ? 'FIRING' : (c.scheduled ? 'scheduled' : (c.continuity ? 'continuity OK' : 'no continuity'));
     document.getElementById(`status${i}`).textContent = `${state} · ${c.last_current_a.toFixed(2)} A`;
+    document.getElementById(`sel${i}`).disabled = r.selection_locked;
   });
+}
+
+async function saveSelect(i) {
+  const checked = document.getElementById(`sel${i}`).checked;
+  const resp = await fetch(`/select?ch=${i}&selected=${checked ? '1' : '0'}`, { method: 'POST' });
+  const j = await resp.json();
+  if (!j.ok) {
+    alert(j.error || 'could not change selection');
+    document.getElementById(`sel${i}`).checked = !checked;  // revert on refusal
+  }
 }
 
 async function saveDelay(i) {
@@ -137,11 +156,7 @@ async function doTrigger() {
   if (selected.length === 0) { alert('Select at least one channel first.'); return; }
   if (!confirm('Trigger channel(s) ' + selected.join(', ') + '?')) return;
 
-  let qs = 'confirm=1';
-  for (let i = 0; i < 3; i++) {
-    qs += `&ch${i}=` + (document.getElementById(`sel${i}`).checked ? '1' : '0');
-  }
-  const resp = await fetch('/trigger?' + qs, { method: 'POST' });
+  const resp = await fetch('/trigger?confirm=1', { method: 'POST' });
   const j = await resp.json();
   if (!j.ok) alert('Not triggered: ' + (j.error || 'unknown error'));
   refresh();

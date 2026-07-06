@@ -23,8 +23,22 @@ struct ChannelState {
   // and it's either fired or skipped.
   bool scheduled = false;
   uint32_t fireAtMs = 0;
+
+  // Whether this channel is included in the next TRIGGER. RAM only, not
+  // persisted (must be an active, current choice) — set via /select, and
+  // (per settings.checkContinuityOnArm) locked while armed so the set of
+  // channels the live continuity monitor is watching can't shift underneath
+  // it. Not cleared automatically after a sequence or a disarm; the
+  // confirm() dialog before firing shows exactly what's selected either way.
+  bool selected = false;
 };
 ChannelState channels[NUM_CHANNELS];
+
+// Live (non-latching) result of the arm-time continuity monitor: true if
+// settings.checkContinuityOnArm is on, the device is armed, and at least
+// one selected channel currently lacks continuity. Recomputed every loop()
+// iteration, so it clears itself the instant the problem is fixed.
+bool armContinuityError = false;
 
 // True from an accepted /trigger until every scheduled channel has either
 // fired (and its pulse ended) or been skipped. Blocks a second /trigger
@@ -136,6 +150,12 @@ void buildStatusJson(String &out) {
   out += String(countdownRemainingMs() / 1000.0f, 1);
   out += ",\"trigger_locked\":";
   out += (settings.requireRearmAfterFire && triggerLockedOut()) ? "true" : "false";
+  out += ",\"continuity_locked\":";
+  out += (continuityLockedOut() ? "true" : "false");
+  out += ",\"arm_continuity_error\":";
+  out += (armContinuityError ? "true" : "false");
+  out += ",\"selection_locked\":";
+  out += (settings.checkContinuityOnArm && st != ArmState::DISARMED) ? "true" : "false";
   out += ",\"sequence_active\":";
   out += (sequenceActive ? "true" : "false");
   out += ",\"fault\":";
@@ -153,6 +173,8 @@ void buildStatusJson(String &out) {
     if (i) out += ",";
     out += "{\"continuity\":";
     out += (hasContinuity(i) ? "true" : "false");
+    out += ",\"selected\":";
+    out += (channels[i].selected ? "true" : "false");
     out += ",\"firing\":";
     out += (channels[i].fireActive ? "true" : "false");
     out += ",\"scheduled\":";
@@ -174,6 +196,26 @@ void handleStatus() {
   String json;
   buildStatusJson(json);
   server.send(200, "application/json", json);
+}
+
+void handleSelect() {
+  if (!server.hasArg("ch") || !server.hasArg("selected")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or selected\"}");
+    return;
+  }
+  int ch = server.arg("ch").toInt();
+  if (ch < 0 || ch >= NUM_CHANNELS) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad channel\"}");
+    return;
+  }
+  if (settings.checkContinuityOnArm && getArmState() != ArmState::DISARMED) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"cannot change selection while armed - disarm first\"}");
+    return;
+  }
+
+  channels[ch].selected = (server.arg("selected") == "1");
+  server.send(200, "application/json", "{\"ok\":true}");
 }
 
 void handleTrigger() {
@@ -198,22 +240,46 @@ void handleTrigger() {
                 "{\"ok\":false,\"error\":\"must disarm and rearm before triggering again\"}");
     return;
   }
-
-  uint32_t now = millis();
-  bool anySelected = false;
-  for (int i = 0; i < NUM_CHANNELS; i++) {
-    char key[8];
-    snprintf(key, sizeof(key), "ch%d", i);
-    if (server.hasArg(key) && server.arg(key) == "1") {
-      anySelected = true;
-      channels[i].scheduled = true;
-      channels[i].fireAtMs = now + (uint32_t)(settings.channelDelaySec[i] * 1000.0f);
-    }
+  if (continuityLockedOut()) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"continuity check failed at last trigger - disarm and rearm\"}");
+    return;
+  }
+  if (armContinuityError) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"continuity problem on a selected channel\"}");
+    return;
   }
 
+  bool anySelected = false;
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    if (channels[i].selected) anySelected = true;
+  }
   if (!anySelected) {
     server.send(400, "application/json", "{\"ok\":false,\"error\":\"no channels selected\"}");
     return;
+  }
+
+  // Pre-trigger continuity check: stricter than the live arm-time monitor
+  // above — a failure here refuses the whole sequence (not just the bad
+  // channel) and imposes a hard disarm+rearm lockout unconditionally,
+  // regardless of requireRearmAfterFire.
+  if (settings.checkContinuityBeforeTrigger) {
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+      if (channels[i].selected && !hasContinuity(i)) {
+        notifyContinuityCheckFailed();
+        server.send(409, "application/json",
+                    "{\"ok\":false,\"error\":\"continuity check failed - nothing fired, disarm and rearm required\"}");
+        return;
+      }
+    }
+  }
+
+  uint32_t now = millis();
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    if (!channels[i].selected) continue;
+    channels[i].scheduled = true;
+    channels[i].fireAtMs = now + (uint32_t)(settings.channelDelaySec[i] * 1000.0f);
   }
 
   sequenceActive = true;
@@ -265,6 +331,10 @@ void handleConfigGet() {
   out += (settings.audibleWhenArmed ? "true" : "false");
   out += ",\"require_rearm\":";
   out += (settings.requireRearmAfterFire ? "true" : "false");
+  out += ",\"check_continuity_on_arm\":";
+  out += (settings.checkContinuityOnArm ? "true" : "false");
+  out += ",\"check_continuity_before_trigger\":";
+  out += (settings.checkContinuityBeforeTrigger ? "true" : "false");
   out += "}";
   server.send(200, "application/json", out);
 }
@@ -299,6 +369,8 @@ void handleConfigPost() {
   bool visible = server.arg("visible_when_armed") == "1";
   bool audible = server.arg("audible_when_armed") == "1";
   bool reqRearm = server.arg("require_rearm") == "1";
+  bool contOnArm = server.arg("check_continuity_on_arm") == "1";
+  bool contBeforeTrig = server.arg("check_continuity_before_trigger") == "1";
 
   // Applied to the in-memory settings immediately either way — none of
   // these influence a firing/fault decision already in flight, so there's
@@ -309,6 +381,8 @@ void handleConfigPost() {
   settings.visibleWhenArmed = visible;
   settings.audibleWhenArmed = audible;
   settings.requireRearmAfterFire = reqRearm;
+  settings.checkContinuityOnArm = contOnArm;
+  settings.checkContinuityBeforeTrigger = contBeforeTrig;
 
   bool saved = saveSettings();
   if (!saved) {
@@ -411,6 +485,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/status.json", handleStatus);
   server.on("/trigger", HTTP_POST, handleTrigger);
+  server.on("/select", HTTP_POST, handleSelect);
   server.on("/channel_delay", HTTP_POST, handleChannelDelay);
   server.on("/clear_fault", HTTP_POST, handleClearFault);
   server.on("/config", HTTP_GET, handleConfigPage);
@@ -461,6 +536,21 @@ void loop() {
       if (channels[i].scheduled || channels[i].fireActive) { anyPending = true; break; }
     }
     if (!anyPending) sequenceActive = false;
+  }
+
+  // Live arm-time continuity monitor (feature #1): recomputed every
+  // iteration, not latched — clears itself the instant the problem is fixed
+  // or the setting is turned off. Only meaningful while armed; the arm
+  // state machine's own COUNTDOWN->READY progression is unaffected by this,
+  // it only gates triggering.
+  armContinuityError = false;
+  if (settings.checkContinuityOnArm && getArmState() != ArmState::DISARMED) {
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+      if (channels[i].selected && !hasContinuity(i)) {
+        armContinuityError = true;
+        break;
+      }
+    }
   }
 
   // Defensive backstop in case an edge was missed (e.g. FAULT was already

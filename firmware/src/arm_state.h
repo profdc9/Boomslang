@@ -25,3 +25,10 @@ bool triggerLockedOut();
 // Call the instant a TRIGGER press is accepted, so a subsequent press can be
 // refused per settings.requireRearmAfterFire.
 void notifyTriggerAccepted();
+
+// Independent of triggerLockedOut()/requireRearmAfterFire: set when a
+// pre-trigger continuity check fails, unconditionally requiring a fresh
+// disarm+rearm before another TRIGGER is accepted. Cleared at the same
+// point triggerLockedOut() is (the arm switch detected open).
+bool continuityLockedOut();
+void notifyContinuityCheckFailed();
