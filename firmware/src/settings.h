@@ -2,12 +2,6 @@
 #include <Arduino.h>
 #include "config.h"
 
-// Defined in main.cpp. saveSettings() refuses to write to flash while armed,
-// since NVS commits briefly disable interrupts system-wide, and that's not
-// something we want racing the fault ISR while a channel could plausibly be
-// live.
-bool isArmed();
-
 // Runtime-configurable values, persisted to flash (NVS) so they survive
 // power cycles. Each field's default here is what a fresh/blank board (or a
 // firmware update that adds a new field) falls back to. Add new fields here
@@ -19,6 +13,25 @@ struct Settings {
   // hardware, so it's runtime-configurable rather than a compile-time
   // constant. Used to convert a SENSE ADC reading to amps.
   float senseOhms[NUM_CHANNELS] = {0.05f, 0.05f, 0.05f};
+
+  // Seconds between the arm switch (J5) being detected closed and firing
+  // becoming permitted, so whoever closed it has time to clear the area.
+  uint32_t armCountdownSec = 15;
+
+  // Whether the onboard strobe LEDs / buzzer indicate armed state at all.
+  // Both default on to match common range-safety practice.
+  bool visibleWhenArmed = true;
+  bool audibleWhenArmed = true;
+
+  // If true, a TRIGGER press locks out any further TRIGGER press until the
+  // arm switch is opened and closed again (a fresh disarm+rearm cycle,
+  // countdown included). If false, another TRIGGER is accepted as soon as
+  // the current sequence finishes, with no rearm needed.
+  bool requireRearmAfterFire = true;
+
+  // Per-channel delay (seconds) from a TRIGGER press to that channel's fire
+  // pulse, for sequencing multiple channels off one trigger.
+  float channelDelaySec[NUM_CHANNELS] = {0.0f, 0.0f, 0.0f};
 };
 
 extern Settings settings;

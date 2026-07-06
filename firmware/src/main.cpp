@@ -7,6 +7,7 @@
 #include "soc/soc.h"
 #include "config.h"
 #include "settings.h"
+#include "arm_state.h"
 #include "webpage.h"
 #include "config_webpage.h"
 
@@ -16,8 +17,20 @@ struct ChannelState {
   bool fireActive = false;
   uint32_t fireEndsAt = 0;
   float lastCurrentA = 0.0f;
+
+  // Set by handleTrigger() when this channel is part of the current
+  // sequence; cleared by loop()'s scheduling pass once its delay elapses
+  // and it's either fired or skipped.
+  bool scheduled = false;
+  uint32_t fireAtMs = 0;
 };
 ChannelState channels[NUM_CHANNELS];
+
+// True from an accepted /trigger until every scheduled channel has either
+// fired (and its pulse ended) or been skipped. Blocks a second /trigger
+// regardless of settings.requireRearmAfterFire — you can never have two
+// sequences in flight at once.
+bool sequenceActive = false;
 
 // Set by onFaultISR() the instant the shared FAULT line drops, and by a
 // defensive poll in loop() as a backstop. Only cleared by handleClearFault()
@@ -99,33 +112,32 @@ void faultSampleTask(void *) {
   }
 }
 
-bool isArmed() {
-  return analogRead(PIN_SENSE_FAILSAFE) > FAILSAFE_OK_RAW;
-}
-
 bool hasContinuity(int ch) {
   return analogRead(PIN_CONTINUITY[ch]) > CONTINUITY_OK_RAW;
 }
 
-bool fireChannel(int ch, String &err) {
-  if (ch < 0 || ch >= NUM_CHANNELS) { err = "bad channel"; return false; }
-  if (faultLatched) { err = "fault latched - clear fault before firing"; return false; }
-  if (digitalRead(PIN_FAULT) == LOW) { err = "fault active"; return false; }
-  if (!isArmed()) { err = "not armed - close arm key at J5"; return false; }
-  if (!hasContinuity(ch)) { err = "no continuity"; return false; }
-  if (channels[ch].fireActive) { err = "already firing"; return false; }
-
+void startFirePulse(int ch) {
   channels[ch].fireActive = true;
   channels[ch].fireEndsAt = millis() + FIRE_PULSE_MS;
   digitalWrite(PIN_TRIGGER[ch], LOW);
   Serial.printf("[fire] channel %d fired\n", ch + 1);
-  return true;
 }
 
 void buildStatusJson(String &out) {
+  ArmState st = getArmState();
+  const char *stateStr = st == ArmState::DISARMED   ? "disarmed"
+                          : st == ArmState::COUNTDOWN ? "countdown"
+                                                       : "ready";
+
   out = "{";
-  out += "\"armed\":";
-  out += (isArmed() ? "true" : "false");
+  out += "\"arm_state\":\"";
+  out += stateStr;
+  out += "\",\"countdown_remaining_s\":";
+  out += String(countdownRemainingMs() / 1000.0f, 1);
+  out += ",\"trigger_locked\":";
+  out += (settings.requireRearmAfterFire && triggerLockedOut()) ? "true" : "false";
+  out += ",\"sequence_active\":";
+  out += (sequenceActive ? "true" : "false");
   out += ",\"fault\":";
   out += (faultLatched ? "true" : "false");
   out += ",\"fault_snapshot_valid\":";
@@ -143,6 +155,10 @@ void buildStatusJson(String &out) {
     out += (hasContinuity(i) ? "true" : "false");
     out += ",\"firing\":";
     out += (channels[i].fireActive ? "true" : "false");
+    out += ",\"scheduled\":";
+    out += (channels[i].scheduled ? "true" : "false");
+    out += ",\"delay_s\":";
+    out += String(settings.channelDelaySec[i], 2);
     out += ",\"last_current_a\":";
     out += String(channels[i].lastCurrentA, 3);
     out += "}";
@@ -160,27 +176,74 @@ void handleStatus() {
   server.send(200, "application/json", json);
 }
 
-void handleFire() {
-  if (!server.hasArg("ch") || server.arg("confirm") != "1") {
-    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or confirm\"}");
+void handleTrigger() {
+  if (server.arg("confirm") != "1") {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing confirm\"}");
     return;
   }
-  int ch = server.arg("ch").toInt();
-  String err;
-  bool ok = fireChannel(ch, err);
-  String resp = String("{\"ok\":") + (ok ? "true" : "false");
-  if (!ok) resp += ",\"error\":\"" + err + "\"";
-  resp += "}";
-  server.send(ok ? 200 : 409, "application/json", resp);
-}
+  if (faultLatched) {
+    server.send(409, "application/json", "{\"ok\":false,\"error\":\"fault latched\"}");
+    return;
+  }
+  if (getArmState() != ArmState::READY) {
+    server.send(409, "application/json", "{\"ok\":false,\"error\":\"not armed and ready\"}");
+    return;
+  }
+  if (sequenceActive) {
+    server.send(409, "application/json", "{\"ok\":false,\"error\":\"sequence already in progress\"}");
+    return;
+  }
+  if (settings.requireRearmAfterFire && triggerLockedOut()) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"must disarm and rearm before triggering again\"}");
+    return;
+  }
 
-void handleAudible() {
-  digitalWrite(PIN_AUDIBLE, server.arg("on") == "1" ? HIGH : LOW);
+  uint32_t now = millis();
+  bool anySelected = false;
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    char key[8];
+    snprintf(key, sizeof(key), "ch%d", i);
+    if (server.hasArg(key) && server.arg(key) == "1") {
+      anySelected = true;
+      channels[i].scheduled = true;
+      channels[i].fireAtMs = now + (uint32_t)(settings.channelDelaySec[i] * 1000.0f);
+    }
+  }
+
+  if (!anySelected) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"no channels selected\"}");
+    return;
+  }
+
+  sequenceActive = true;
+  notifyTriggerAccepted();
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
-void handleVisible() {
-  digitalWrite(PIN_VISIBLE, server.arg("on") == "1" ? HIGH : LOW);
+void handleChannelDelay() {
+  if (!server.hasArg("ch") || !server.hasArg("delay")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or delay\"}");
+    return;
+  }
+  int ch = server.arg("ch").toInt();
+  if (ch < 0 || ch >= NUM_CHANNELS) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad channel\"}");
+    return;
+  }
+  float delaySec = server.arg("delay").toFloat();
+  if (delaySec < 0.0f || delaySec > 60.0f) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"delay out of range (0-60s)\"}");
+    return;
+  }
+
+  settings.channelDelaySec[ch] = delaySec;
+  bool saved = saveSettings();
+  if (!saved) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"applied, but not saved to flash - disarm to persist\"}");
+    return;
+  }
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -194,7 +257,15 @@ void handleConfigGet() {
     if (i) out += ",";
     out += String(settings.senseOhms[i], 4);
   }
-  out += "]}";
+  out += "],\"arm_countdown_s\":";
+  out += settings.armCountdownSec;
+  out += ",\"visible_when_armed\":";
+  out += (settings.visibleWhenArmed ? "true" : "false");
+  out += ",\"audible_when_armed\":";
+  out += (settings.audibleWhenArmed ? "true" : "false");
+  out += ",\"require_rearm\":";
+  out += (settings.requireRearmAfterFire ? "true" : "false");
+  out += "}";
   server.send(200, "application/json", out);
 }
 
@@ -215,11 +286,29 @@ void handleConfigPost() {
     newSenseOhms[i] = v;
   }
 
-  // Applied to the in-memory reading immediately either way — this only
-  // scales a diagnostic current display, it doesn't influence any firing or
-  // fault decision, so there's no safety reason to gate it on armed state.
-  // Only the flash write itself needs that gate.
+  if (!server.hasArg("arm_countdown_s")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing arm_countdown_s\"}");
+    return;
+  }
+  long countdown = server.arg("arm_countdown_s").toInt();
+  if (countdown < 0 || countdown > 600) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"arm_countdown_s out of range (0-600)\"}");
+    return;
+  }
+
+  bool visible = server.arg("visible_when_armed") == "1";
+  bool audible = server.arg("audible_when_armed") == "1";
+  bool reqRearm = server.arg("require_rearm") == "1";
+
+  // Applied to the in-memory settings immediately either way — none of
+  // these influence a firing/fault decision already in flight, so there's
+  // no safety reason to gate the RAM update on armed state. Only the flash
+  // write itself needs that gate.
   for (int i = 0; i < NUM_CHANNELS; i++) settings.senseOhms[i] = newSenseOhms[i];
+  settings.armCountdownSec = (uint32_t)countdown;
+  settings.visibleWhenArmed = visible;
+  settings.audibleWhenArmed = audible;
+  settings.requireRearmAfterFire = reqRearm;
 
   bool saved = saveSettings();
   if (!saved) {
@@ -321,9 +410,8 @@ void setup() {
 
   server.on("/", handleRoot);
   server.on("/status.json", handleStatus);
-  server.on("/fire", HTTP_POST, handleFire);
-  server.on("/audible", HTTP_POST, handleAudible);
-  server.on("/visible", HTTP_POST, handleVisible);
+  server.on("/trigger", HTTP_POST, handleTrigger);
+  server.on("/channel_delay", HTTP_POST, handleChannelDelay);
   server.on("/clear_fault", HTTP_POST, handleClearFault);
   server.on("/config", HTTP_GET, handleConfigPage);
   server.on("/config.json", HTTP_GET, handleConfigGet);
@@ -334,6 +422,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  updateArmState();
 
   uint32_t now = millis();
 
@@ -348,6 +437,32 @@ void loop() {
     channels[i].lastCurrentA = readCurrentA(i);
   }
 
+  // Scheduled-fire pass for the current trigger sequence (if any).
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    if (!channels[i].scheduled) continue;
+    if ((int32_t)(now - channels[i].fireAtMs) < 0) continue;
+
+    channels[i].scheduled = false;
+    // Re-check right at fire time — conditions can change during a
+    // multi-second delay. If the arm switch opens mid-sequence, the gate
+    // drivers lose power regardless of what firmware does; this check is
+    // belt-and-suspenders/logging, not the actual safety mechanism.
+    if (faultLatched || getArmState() != ArmState::READY || !hasContinuity(i)) {
+      Serial.printf("[trigger] channel %d skipped at fire time (fault=%d ready=%d continuity=%d)\n",
+                    i + 1, faultLatched, getArmState() == ArmState::READY, hasContinuity(i));
+      continue;
+    }
+    startFirePulse(i);
+  }
+
+  if (sequenceActive) {
+    bool anyPending = false;
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+      if (channels[i].scheduled || channels[i].fireActive) { anyPending = true; break; }
+    }
+    if (!anyPending) sequenceActive = false;
+  }
+
   // Defensive backstop in case an edge was missed (e.g. FAULT was already
   // low before attachInterrupt() ran during setup()).
   if (!faultLatched && digitalRead(PIN_FAULT) == LOW) faultLatched = true;
@@ -355,7 +470,11 @@ void loop() {
   // On the transition into a fault: nothing should still claim to be
   // "firing" since the ISR already forced every trigger pin high.
   if (faultLatched && !faultLatchedPrev) {
-    for (int i = 0; i < NUM_CHANNELS; i++) channels[i].fireActive = false;
+    for (int i = 0; i < NUM_CHANNELS; i++) {
+      channels[i].fireActive = false;
+      channels[i].scheduled = false;
+    }
+    sequenceActive = false;
     Serial.printf("[fault] latched at t=%lu ms\n", (unsigned long)now);
   }
   faultLatchedPrev = faultLatched;

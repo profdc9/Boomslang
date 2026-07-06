@@ -28,7 +28,10 @@ constexpr int   ADC_MAX    = 4095;
 // open. The threshold sits well below the clamp voltage and well above
 // ADC noise / leakage on an open loop.
 constexpr int CONTINUITY_OK_RAW   = 600;  // ~0.48V
-constexpr int FAILSAFE_OK_RAW     = 600;
+
+// Arm-loop (J5) detect threshold, ~1.0V per the same LED-clamp scheme.
+constexpr float FAILSAFE_ARM_VOLTS = 1.0f;
+constexpr int FAILSAFE_OK_RAW = (int)(FAILSAFE_ARM_VOLTS / ADC_VREF * ADC_MAX);
 
 // Firing current sense: SENSE node voltage = I_fire * senseOhms[ch], direct
 // (no divider) since the ADC input draws negligible current. The per-channel
