@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "Boomslang")(type "KiCad")(uri "${KIPRJMOD}/Boomslang.pretty")(options "")(descr ""))
+)
