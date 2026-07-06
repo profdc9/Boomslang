@@ -45,3 +45,14 @@ Unreleased.
 - Dual licensing (MIT for firmware, CC BY-SA 4.0 for hardware design
   files) and a use-at-your-own-risk disclaimer.
 - `CONTRIBUTING.md` and README license badges.
+- Factory-reset pin (GPIO14, internally pulled up, checked once at boot):
+  grounding it before power-up resets every setting to its compiled-in
+  default.
+- WiFi relay (station) mode (default off): joins an existing router as a
+  client instead of hosting its own AP, for more distance between operator
+  and pyrotechnics, falling back to hosting its own AP if that connection
+  fails so the device is never left unreachable. Enabling it requires
+  typing the literal word "relay" into a settings-page text field rather
+  than a checkbox, since it means anyone who can reach that external
+  network can also reach this device. mDNS (`boomslang.local`) now starts
+  in either mode.
