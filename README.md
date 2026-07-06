@@ -214,3 +214,19 @@ with no need to open and reclose the switch. Turn the lockout off in
 settings to arm anyway regardless of voltage (e.g. bench testing on a
 supply that's intentionally below threshold) while keeping the warning
 display active.
+
+**Scope limitation — no debounce on the voltage check itself.** Unlike
+`SENSEFAILSAFE` (50ms debounce before the arm state machine acts on it),
+`battery_v` is a single raw ADC sample checked fresh on every `loop()`
+iteration, with no averaging or hysteresis. Two consequences worth knowing:
+
+- A reading oscillating right at the threshold (ADC noise, supply ripple)
+  can flap the lockout in and out rather than settling — normal debounce
+  logic just isn't there for this check.
+- Firing an igniter draws real current through the same 12V rail being
+  sensed. If that momentary load sag dips `battery_v` under threshold right
+  as a channel fires, the lockout can force a disarm — aborting the
+  in-flight sequence — because of the firing event's *own* transient, not
+  an actual low battery. Set `lowBatteryThresholdV` with real headroom
+  below your pack's worst-case voltage under load, not just its resting
+  voltage, or expect this interaction if the margin is tight.
