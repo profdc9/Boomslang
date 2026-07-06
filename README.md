@@ -76,6 +76,41 @@ opened and closed again (a fresh disarm + countdown + `READY`). With it off,
 another TRIGGER is accepted as soon as the current sequence finishes, no
 rearm needed.
 
+## Continuity checks
+
+`CONTINUITY1/2/3` sense the same way `SENSEFAILSAFE` does: ~1mA through a red
+LED, whose forward voltage exceeds ~1.5V when the loop (the igniter, in this
+case) is actually closed. That threshold (`CONTINUITY_OK_RAW` in
+`firmware/src/config.h`) is shared with the arm-loop sense, since it's the
+identical circuit at the identical target voltage.
+
+Beyond the per-channel status dot, continuity gates channel selection and
+triggering in two independent ways:
+
+**Arm-time continuity monitor** (`checkContinuityOnArm`, settings page,
+default **on**): while armed (`COUNTDOWN` or `READY`), continuously verifies
+that every *selected* channel still has continuity. If one doesn't, the
+control page shows an error and TRIGGER is refused — but this is live, not
+latched: it clears itself the instant continuity is restored, or the setting
+is turned off, no disarm needed. While this setting is on, channel selection
+is also locked while armed (the `/select` endpoint refuses changes), since
+the set of channels being monitored can't shift out from under a live check
+— disarm to change which channels are selected.
+
+**Pre-trigger continuity check** (`checkContinuityBeforeTrigger`, settings
+page, default **on**): at the instant TRIGGER is pressed, re-verifies
+continuity for every selected channel. If any fail, *nothing* fires, the
+control page shows an error, and — unlike the live monitor above — this is a
+hard lockout: a full disarm and rearm is required before another TRIGGER is
+accepted, regardless of `requireRearmAfterFire` (that setting is about the
+post-*successful*-fire case; this is a separate, always-strict rule for this
+specific failure).
+
+Both checks are additional to, not a replacement for, the per-channel
+recheck already described under Trigger sequence above (which happens at
+each channel's actual fire moment, not at the TRIGGER press, and only skips
+that one channel rather than refusing the whole sequence).
+
 ## Battery voltage
 
 The 12V supply is sensed on GPIO2 through a fixed 1:11 resistor divider
