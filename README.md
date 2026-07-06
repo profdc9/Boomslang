@@ -1,5 +1,8 @@
 # Boomslang
 
+[![Firmware License: MIT](https://img.shields.io/badge/firmware%20license-MIT-yellow.svg)](LICENSE)
+[![Hardware License: CC BY-SA 4.0](https://img.shields.io/badge/hardware%20license-CC%20BY--SA%204.0-lightgrey.svg)](LICENSE-HARDWARE.txt)
+
 A 3-channel ESP32-S3 pyrotechnic/model-rocket ignition controller. Hardware
 (KiCad project, schematic, gerbers) is under `Boomslang/`; firmware is under
 `firmware/` (PlatformIO, Arduino framework).
