@@ -26,6 +26,27 @@ plus added latency on the page's frequent status polling, for a narrower
 additional threat (another authenticated client on the same AP sniffing
 traffic) than what WPA2 already covers.
 
+## Web UI pages
+
+Four pages, all polling `/status.json` and posting to the same handful of
+endpoints — the split below is purely how the browser organizes things, not
+a backend/data-model split. Each has a small nav row (Main · Timing · Stats
+· Settings) so it's obvious how to get back to the others.
+
+- **`/` (Main)** — the operational screen, meant for actual field use:
+  arm/fault/lockout status, battery voltage, each channel's checkbox + live
+  continuity/firing state, and TRIGGER/ABORT/PANIC. Deliberately lean —
+  timing setup and post-fire review live elsewhere so this screen stays fast
+  to read and tap through during an actual arm/fire sequence.
+- **`/timing`** — setup screen: the same channel checkboxes as Main (same
+  `/select` endpoint — selection can be changed from either page) plus each
+  channel's offset/duration in milliseconds (see Trigger sequence below). No
+  live operational state and no TRIGGER/ABORT/PANIC here.
+- **`/stats`** — read-only review: peak and average current per channel
+  from its most recent pulse (see Trigger sequence below).
+- **`/config` (Settings)** — every persisted setting described throughout
+  this README.
+
 ## Overcurrent fault protection
 
 Each channel's IRLZ44N MOSFET has its own analog overcurrent comparator
@@ -160,8 +181,8 @@ samples that channel's current sense on every iteration, tracking the
 highest single sample (peak) and the running mean of all samples (average).
 Both are reset at the start of each pulse and then simply held afterward —
 so they remain readable (`peak_current_a`/`avg_current_a` in
-`/status.json`, shown under each channel on the control page) for the rest
-of the session, until that channel fires again.
+`/status.json`, shown per channel on the `/stats` page) for the rest of the
+session, until that channel fires again.
 
 ## ABORT and PANIC buttons
 
@@ -264,7 +285,7 @@ addressing two failure modes a single raw comparison would otherwise have:
 - *Self-induced false trip* — firing an igniter draws real current through
   the same 12V rail being sensed, so a fire pulse can sag `battery_v`
   momentarily. The low-voltage condition must hold steady for 2 seconds
-  (comfortably longer than a `FIRE_PULSE_MS` pulse, or a short
+  (comfortably longer than a typical `channelDurationMs` pulse, or a short
   multi-channel burst) before the lockout actually engages, so a firing
   event's own transient sag isn't mistaken for a real low battery.
 
