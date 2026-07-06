@@ -138,19 +138,25 @@ which channels to fire and, per channel, how long after pressing TRIGGER
 that channel should fire, then fires the whole configured sequence off a
 single press.
 
-**Per channel, on the main page:**
-- A checkbox to include that channel in the next trigger. **Not** persisted
-  — it resets on every page load, so a stale "everything selected" state
-  from a previous session can never carry over silently.
-- An **offset** in milliseconds (0-60000, default 0) from the TRIGGER press
-  to that channel's trigger output going low.
-- A **duration** in milliseconds (0-30000, default 500) that the trigger
-  output then stays low.
+**Per channel:**
+- A checkbox, on both the Main and Timing pages, to include that channel in
+  the next trigger. **Not** persisted — it resets on every page load, so a
+  stale "everything selected" state from a previous session can never carry
+  over silently.
+- An **offset** in milliseconds (0-60000, default 0), on the Timing page,
+  from the TRIGGER press to that channel's trigger output going low.
+- A **duration** in milliseconds (0-30000, default 500), also on the Timing
+  page, that the trigger output then stays low.
 
-Both offset and duration are persisted per channel, so a fixed show
-sequence doesn't need retyping every session. They're plain milliseconds
-rather than seconds specifically for finer-grained control over short
-pulses.
+Offset and duration are both persisted settings
+(`channelDelayMs`/`channelDurationMs`), saved to flash the moment you change
+either one — same as every other setting, they survive a power cycle, so a
+fixed show sequence doesn't need retyping every session. They're plain
+milliseconds rather than seconds specifically for finer-grained control over
+short pulses. Also same as every other setting: saving to flash requires
+the device to be disarmed — a change made while armed still applies
+immediately in RAM for that session, but won't survive a reboot until you
+disarm and it actually gets persisted.
 
 **Pressing TRIGGER** is only possible when `arm_state` is `READY`, there's no
 active fault, no sequence is already running, and (if
