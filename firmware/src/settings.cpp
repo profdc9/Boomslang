@@ -35,6 +35,7 @@ void loadSettings() {
   settings.requireRearmAfterFire = prefs.getBool("reqRearm", settings.requireRearmAfterFire);
   settings.checkContinuityOnArm = prefs.getBool("contOnArm", settings.checkContinuityOnArm);
   settings.checkContinuityBeforeTrigger = prefs.getBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
+  settings.lowBatteryThresholdV = prefs.getFloat("lowBattV", settings.lowBatteryThresholdV);
   prefs.end();
 }
 
@@ -60,6 +61,7 @@ bool saveSettings() {
   prefs.putBool("reqRearm", settings.requireRearmAfterFire);
   prefs.putBool("contOnArm", settings.checkContinuityOnArm);
   prefs.putBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
+  prefs.putFloat("lowBattV", settings.lowBatteryThresholdV);
   prefs.end();
   return true;
 }

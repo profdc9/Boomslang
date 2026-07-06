@@ -42,6 +42,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .aux button { background:#333; color:#eee; font-size:1em; padding:14px; }
   .small { font-size:0.9em; color:#999; margin-top:14px; text-align:center; }
   .battery { font-size:0.9em; color:#999; margin:-4px 0 12px; text-align:center; }
+  .battery.low { color:#ff9e5e; font-weight:700; }
 </style>
 </head>
 <body>
@@ -63,7 +64,11 @@ async function refresh() {
   try { r = await (await fetch('/status.json')).json(); }
   catch (e) { document.getElementById('banner').textContent = 'connection lost'; return; }
 
-  document.getElementById('battery').textContent = `Battery: ${r.battery_v.toFixed(1)} V`;
+  const batteryEl = document.getElementById('battery');
+  batteryEl.textContent = r.low_battery
+    ? `Battery: ${r.battery_v.toFixed(1)} V — LOW BATTERY`
+    : `Battery: ${r.battery_v.toFixed(1)} V`;
+  batteryEl.className = 'battery' + (r.low_battery ? ' low' : '');
 
   const banner = document.getElementById('banner');
   if (r.fault) {

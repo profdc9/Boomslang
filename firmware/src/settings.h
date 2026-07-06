@@ -43,6 +43,10 @@ struct Settings {
   // before another TRIGGER is accepted, regardless of requireRearmAfterFire
   // (that setting is about the post-success case; this is separate).
   bool checkContinuityBeforeTrigger = true;
+
+  // Below this, the UI shows a low-battery warning. Just a warning — it
+  // doesn't block arming or triggering.
+  float lowBatteryThresholdV = 11.5f;
 };
 
 extern Settings settings;

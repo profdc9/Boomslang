@@ -60,6 +60,12 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
   <div class="hint">Stricter: a failure here fires nothing and requires a full disarm+rearm before another trigger, regardless of the setting above.</div>
 </div>
 
+<div class="card">
+  <strong>Battery</strong>
+  <label>Low-battery warning threshold (V) <input type="number" id="lowBattV" step="0.1" min="0" max="30"></label>
+  <div class="hint">Just a warning shown on the control page — doesn't block arming or triggering.</div>
+</div>
+
 <button class="save-btn" onclick="save()">Save</button>
 <button class="reset-btn" onclick="resetDefaults()">Reset to Defaults</button>
 <div id="status" class="status"></div>
@@ -90,6 +96,7 @@ async function loadConfig() {
   document.getElementById('reqRearm').checked = c.require_rearm;
   document.getElementById('contOnArm').checked = c.check_continuity_on_arm;
   document.getElementById('contBeforeTrig').checked = c.check_continuity_before_trigger;
+  document.getElementById('lowBattV').value = c.low_battery_threshold_v;
 }
 
 async function save() {
@@ -102,11 +109,13 @@ async function save() {
   const reqRearm = document.getElementById('reqRearm').checked ? '1' : '0';
   const contOnArm = document.getElementById('contOnArm').checked ? '1' : '0';
   const contBeforeTrig = document.getElementById('contBeforeTrig').checked ? '1' : '0';
+  const lowBattV = document.getElementById('lowBattV').value;
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
     `&arm_countdown_s=${countdown}&visible_when_armed=${visible}` +
     `&audible_when_armed=${audible}&require_rearm=${reqRearm}` +
-    `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}`,
+    `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}` +
+    `&low_battery_threshold_v=${lowBattV}`,
     { method: 'POST' });
   showStatus(await resp.json());
 }

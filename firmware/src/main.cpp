@@ -169,6 +169,8 @@ void buildStatusJson(String &out) {
   out += (sequenceActive ? "true" : "false");
   out += ",\"battery_v\":";
   out += String(batteryVoltage, 2);
+  out += ",\"low_battery\":";
+  out += (batteryVoltage < settings.lowBatteryThresholdV ? "true" : "false");
   out += ",\"fault\":";
   out += (faultLatched ? "true" : "false");
   out += ",\"fault_snapshot_valid\":";
@@ -346,6 +348,8 @@ void handleConfigGet() {
   out += (settings.checkContinuityOnArm ? "true" : "false");
   out += ",\"check_continuity_before_trigger\":";
   out += (settings.checkContinuityBeforeTrigger ? "true" : "false");
+  out += ",\"low_battery_threshold_v\":";
+  out += String(settings.lowBatteryThresholdV, 2);
   out += "}";
   server.send(200, "application/json", out);
 }
@@ -377,6 +381,17 @@ void handleConfigPost() {
     return;
   }
 
+  if (!server.hasArg("low_battery_threshold_v")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing low_battery_threshold_v\"}");
+    return;
+  }
+  float lowBattThresh = server.arg("low_battery_threshold_v").toFloat();
+  if (lowBattThresh < 0.0f || lowBattThresh > 30.0f) {
+    server.send(400, "application/json",
+                "{\"ok\":false,\"error\":\"low_battery_threshold_v out of range (0-30V)\"}");
+    return;
+  }
+
   bool visible = server.arg("visible_when_armed") == "1";
   bool audible = server.arg("audible_when_armed") == "1";
   bool reqRearm = server.arg("require_rearm") == "1";
@@ -394,6 +409,7 @@ void handleConfigPost() {
   settings.requireRearmAfterFire = reqRearm;
   settings.checkContinuityOnArm = contOnArm;
   settings.checkContinuityBeforeTrigger = contBeforeTrig;
+  settings.lowBatteryThresholdV = lowBattThresh;
 
   bool saved = saveSettings();
   if (!saved) {
