@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-14
+
 ### Added
 
 - Arm timeout auto-lockout: if `READY` is held longer than a configurable
