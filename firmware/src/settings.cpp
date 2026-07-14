@@ -32,6 +32,7 @@ void loadSettings() {
     settings.channelDurationMs[i] = prefs.getUInt(key, settings.channelDurationMs[i]);
   }
   settings.armCountdownSec = prefs.getUInt("armCountdown", settings.armCountdownSec);
+  settings.armTimeoutSec = prefs.getUInt("armTimeout", settings.armTimeoutSec);
   settings.visibleWhenArmed = prefs.getBool("visibleArmed", settings.visibleWhenArmed);
   settings.audibleWhenArmed = prefs.getBool("audibleArmed", settings.audibleWhenArmed);
   settings.requireRearmAfterFire = prefs.getBool("reqRearm", settings.requireRearmAfterFire);
@@ -69,6 +70,7 @@ bool saveSettings() {
     prefs.putUInt(key, settings.channelDurationMs[i]);
   }
   prefs.putUInt("armCountdown", settings.armCountdownSec);
+  prefs.putUInt("armTimeout", settings.armTimeoutSec);
   prefs.putBool("visibleArmed", settings.visibleWhenArmed);
   prefs.putBool("audibleArmed", settings.audibleWhenArmed);
   prefs.putBool("reqRearm", settings.requireRearmAfterFire);

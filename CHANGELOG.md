@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Arm timeout auto-lockout: if `READY` is held longer than a configurable
+  `armTimeoutSec` (default 600s, 0 disables) without triggering, TRIGGER is
+  refused until a fresh disarm and rearm, even though the arm switch is
+  still physically closed. Software-only, same lockout family as PANIC;
+  does not touch the physical arm loop or the buzzer/strobe pattern.
+
 ## [0.1.1] - 2026-07-06
 
 ### Added

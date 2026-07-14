@@ -58,3 +58,12 @@ void setSequenceActive(bool active);
 // open, then closed again).
 bool panicLockedOut();
 void notifyPanicPressed();
+
+// Set automatically once READY has been held continuously for
+// settings.armTimeoutSec seconds (never set if that's 0). Same shape as
+// panicLockedOut(): blocks TRIGGER and requires a fresh disarm+rearm,
+// cleared at the same point the other lockouts are. This is a software-only
+// guard against "left armed and walked away" — it does not touch the
+// physical arm loop, so the hardware switch remains the actual power
+// interlock regardless of this flag.
+bool armTimedOut();

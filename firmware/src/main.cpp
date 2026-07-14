@@ -208,6 +208,8 @@ void buildStatusJson(String &out) {
   out += (continuityLockedOut() ? "true" : "false");
   out += ",\"panic_locked\":";
   out += (panicLockedOut() ? "true" : "false");
+  out += ",\"arm_timed_out\":";
+  out += (armTimedOut() ? "true" : "false");
   out += ",\"arm_continuity_error\":";
   out += (armContinuityError ? "true" : "false");
   out += ",\"selection_locked\":";
@@ -316,6 +318,11 @@ void handleTrigger() {
   if (panicLockedOut()) {
     server.send(409, "application/json",
                 "{\"ok\":false,\"error\":\"panic pressed - disarm and rearm before triggering again\"}");
+    return;
+  }
+  if (armTimedOut()) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"arm timeout elapsed - disarm and rearm before triggering again\"}");
     return;
   }
   if (armContinuityError) {
@@ -456,6 +463,8 @@ void handleConfigGet() {
   }
   out += "],\"arm_countdown_s\":";
   out += settings.armCountdownSec;
+  out += ",\"arm_timeout_s\":";
+  out += settings.armTimeoutSec;
   out += ",\"visible_when_armed\":";
   out += (settings.visibleWhenArmed ? "true" : "false");
   out += ",\"audible_when_armed\":";
@@ -504,6 +513,16 @@ void handleConfigPost() {
   long countdown = server.arg("arm_countdown_s").toInt();
   if (countdown < 0 || countdown > 600) {
     server.send(400, "application/json", "{\"ok\":false,\"error\":\"arm_countdown_s out of range (0-600)\"}");
+    return;
+  }
+
+  if (!server.hasArg("arm_timeout_s")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing arm_timeout_s\"}");
+    return;
+  }
+  long armTimeout = server.arg("arm_timeout_s").toInt();
+  if (armTimeout < 0 || armTimeout > 3600) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"arm_timeout_s out of range (0-3600)\"}");
     return;
   }
 
@@ -565,6 +584,7 @@ void handleConfigPost() {
   // inert until the next boot.
   for (int i = 0; i < NUM_CHANNELS; i++) settings.senseOhms[i] = newSenseOhms[i];
   settings.armCountdownSec = (uint32_t)countdown;
+  settings.armTimeoutSec = (uint32_t)armTimeout;
   settings.visibleWhenArmed = visible;
   settings.audibleWhenArmed = audible;
   settings.requireRearmAfterFire = reqRearm;

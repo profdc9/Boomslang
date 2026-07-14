@@ -18,6 +18,16 @@ struct Settings {
   // becoming permitted, so whoever closed it has time to clear the area.
   uint32_t armCountdownSec = 15;
 
+  // Seconds allowed in READY before a fresh disarm+rearm is required, even
+  // if the arm switch (J5) is still physically closed. 0 disables this
+  // (READY can persist indefinitely, as before). This is a software-only
+  // lockout on top of the hardware switch — it cannot re-power the gate
+  // drivers on its own, and it cannot cut them either; it only blocks
+  // TRIGGER, the same way panicLockedOut() does, until the switch is
+  // observed open then closed again. Guards against "left armed and walked
+  // away" rather than any electrical fault.
+  uint32_t armTimeoutSec = 600;
+
   // Whether the onboard strobe LEDs / buzzer indicate armed state at all.
   // Both default on to match common range-safety practice.
   bool visibleWhenArmed = true;

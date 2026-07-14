@@ -50,6 +50,8 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
 <div class="card">
   <strong>Arming</strong>
   <label>Countdown before firing is permitted (s) <input type="number" id="countdown" step="1" min="0" max="600"></label>
+  <label>Auto-lockout after this long in READY (s, 0=never) <input type="number" id="armTimeout" step="1" min="0" max="3600"></label>
+  <div class="hint">If READY is held this long — armed but never triggered, or nothing selected — TRIGGER is refused until a fresh disarm+rearm, even if the arm switch (J5) is still physically closed. Does not touch the switch itself or the buzzer/strobe pattern; it only blocks firing. 0 disables this (matches prior behavior).</div>
   <div class="checkrow"><span>Visible flash when armed</span><input type="checkbox" id="visibleArmed"></div>
   <div class="checkrow"><span>Audible alarm when armed</span><input type="checkbox" id="audibleArmed"></div>
   <div class="checkrow"><span>Require disarm+rearm before re-triggering</span><input type="checkbox" id="reqRearm"></div>
@@ -110,6 +112,7 @@ async function loadConfig() {
   document.getElementById('r1').value = c.sense_ohms[1];
   document.getElementById('r2').value = c.sense_ohms[2];
   document.getElementById('countdown').value = c.arm_countdown_s;
+  document.getElementById('armTimeout').value = c.arm_timeout_s;
   document.getElementById('visibleArmed').checked = c.visible_when_armed;
   document.getElementById('audibleArmed').checked = c.audible_when_armed;
   document.getElementById('reqRearm').checked = c.require_rearm;
@@ -127,6 +130,7 @@ async function save() {
   const r1 = document.getElementById('r1').value;
   const r2 = document.getElementById('r2').value;
   const countdown = document.getElementById('countdown').value;
+  const armTimeout = document.getElementById('armTimeout').value;
   const visible = document.getElementById('visibleArmed').checked ? '1' : '0';
   const audible = document.getElementById('audibleArmed').checked ? '1' : '0';
   const reqRearm = document.getElementById('reqRearm').checked ? '1' : '0';
@@ -141,7 +145,7 @@ async function save() {
   const wifiRelayConfirm = encodeURIComponent(document.getElementById('wifiRelayConfirm').value);
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
-    `&arm_countdown_s=${countdown}&visible_when_armed=${visible}` +
+    `&arm_countdown_s=${countdown}&arm_timeout_s=${armTimeout}&visible_when_armed=${visible}` +
     `&audible_when_armed=${audible}&require_rearm=${reqRearm}` +
     `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}` +
     `&low_battery_threshold_v=${lowBattV}&low_voltage_lockout_enabled=${lvLockout}` +

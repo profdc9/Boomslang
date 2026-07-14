@@ -284,6 +284,30 @@ independent of `requireRearmAfterFire`, and regardless of whether anything
 was actually firing when it was pressed. Always enabled on the control
 page, since pressing it has an effect either way.
 
+## Arm timeout (auto-lockout)
+
+Guards against "armed and walked away": if the device sits in `READY` —
+armed, past the countdown, but never actually triggered — for longer than a
+configurable timeout, TRIGGER is refused until a fresh disarm and rearm,
+even though the arm switch (`J5`) is still physically closed.
+
+**`armTimeoutSec`** (settings page, default **600s / 10 minutes**, 0
+disables it): the clock starts the instant `COUNTDOWN` transitions to
+`READY`, not when the switch was first closed, so a long
+`armCountdownSec` doesn't eat into the READY window. Once it elapses, the
+control page shows "Arm timeout elapsed — disarm & rearm required before
+triggering again" and TRIGGER is disabled, the same way it is for
+`panicLockedOut()` — cleared at the same point every other lockout is: the
+arm switch observed open, then closed again.
+
+This is a **software-only** lockout, same family as PANIC and the
+continuity/rearm lockouts above: it cannot re-power the gate drivers on its
+own, and it cannot cut them either. It only blocks the firmware's own
+`/trigger` handler. The hardware arm switch remains the actual power
+interlock regardless of this setting — the buzzer/strobe pattern keeps
+following `READY` normally throughout, since electrically the device really
+is still armed.
+
 ## Continuity checks
 
 `CONTINUITY1/2/3` sense the same way `SENSEFAILSAFE` does: ~1mA through a red

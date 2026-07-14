@@ -23,6 +23,12 @@ uint32_t rawChangedAtMs = 0;
 bool locked = false;       // post-fire lockout (requireRearmAfterFire)
 bool contLocked = false;   // pre-trigger continuity-check-failed lockout
 bool panicLocked = false;  // PANIC button pressed
+bool timedOut = false;     // READY held longer than settings.armTimeoutSec
+
+// Set the instant COUNTDOWN transitions to READY; armTimeoutSec counts from
+// here, not from when the switch was first closed, so a long armCountdownSec
+// doesn't eat into the READY window.
+uint32_t readyEnteredAtMs = 0;
 
 bool blinkOn = false;
 uint32_t lastBlinkToggleMs = 0;
@@ -117,11 +123,12 @@ void updateArmState() {
           state = ArmState::COUNTDOWN;
           countdownEndsAtMs = now + settings.armCountdownSec * 1000UL;
           // Being here at all means the arm switch was open — that's the
-          // "disarm" half of "disarm and rearm" satisfied, for all three
+          // "disarm" half of "disarm and rearm" satisfied, for all four
           // lockouts.
           locked = false;
           contLocked = false;
           panicLocked = false;
+          timedOut = false;
         }
       } else {
         lowVBlocking = false;
@@ -137,12 +144,22 @@ void updateArmState() {
         state = ArmState::DISARMED;
       } else if ((int32_t)(now - countdownEndsAtMs) >= 0) {
         state = ArmState::READY;
+        readyEnteredAtMs = now;
       }
       break;
 
     case ArmState::READY:
       if (!debouncedArmed || lowV) {
         state = ArmState::DISARMED;
+      } else if (settings.armTimeoutSec > 0 &&
+                 (now - readyEnteredAtMs) >= settings.armTimeoutSec * 1000UL) {
+        // Software-only: blocks TRIGGER via armTimedOut(), same as
+        // panicLockedOut(). Does not touch state or the physical switch —
+        // the switch stays closed, the hardware interlock is unaffected,
+        // and visible/audible indication keeps following READY normally
+        // (the hardware truth is still "armed"; only firmware's willingness
+        // to accept TRIGGER has changed).
+        timedOut = true;
       }
       break;
   }
@@ -203,3 +220,5 @@ void setSequenceActive(bool active) { sequenceActiveFlag = active; }
 bool panicLockedOut() { return panicLocked; }
 
 void notifyPanicPressed() { panicLocked = true; }
+
+bool armTimedOut() { return timedOut; }

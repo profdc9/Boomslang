@@ -93,6 +93,9 @@ async function refresh() {
   } else if (r.panic_locked) {
     banner.className = 'banner contwarn';
     banner.textContent = 'PANIC pressed — disarm & rearm required before triggering again.';
+  } else if (r.arm_timed_out) {
+    banner.className = 'banner contwarn';
+    banner.textContent = 'Arm timeout elapsed — disarm & rearm required before triggering again.';
   } else if (r.continuity_locked) {
     banner.className = 'banner contwarn';
     banner.textContent = 'Continuity check failed at trigger — nothing fired. Disarm & rearm to clear.';
@@ -124,7 +127,7 @@ async function refresh() {
 
   const canTrigger = r.arm_state === 'ready' && !r.fault && !r.sequence_active &&
                      !r.trigger_locked && !r.continuity_locked && !r.panic_locked &&
-                     !r.arm_continuity_error;
+                     !r.arm_timed_out && !r.arm_continuity_error;
   document.getElementById('triggerBtn').disabled = !canTrigger;
   // ABORT only does anything while a sequence is running; PANIC always has
   // an effect (it sets the disarm/rearm requirement even with nothing
