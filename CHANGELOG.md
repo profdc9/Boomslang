@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-07-22
+
 ### Fixed
 
 - False `FAULT` trip on every TRIGGER press with no load connected: a
