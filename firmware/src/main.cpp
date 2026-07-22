@@ -556,8 +556,8 @@ void handleConfigPost() {
       return;
     }
     float v = server.arg(key).toFloat();
-    if (v < 0.001f || v > 10.0f) {
-      server.send(400, "application/json", "{\"ok\":false,\"error\":\"" + String(key) + " out of range (0.001-10 ohm)\"}");
+    if (v < 0.01f || v > 100.0f) {
+      server.send(400, "application/json", "{\"ok\":false,\"error\":\"" + String(key) + " out of range (0.01-100 ohm)\"}");
       return;
     }
     newSenseOhms[i] = v;

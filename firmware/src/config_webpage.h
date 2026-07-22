@@ -42,9 +42,9 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
 <div class="card">
   <strong>Current-sense shunt resistance (ohms)</strong>
   <div class="hint">Schematic default is 0.05R (R1/R17/R31). Only change this if a shunt has actually been replaced with a different value.</div>
-  <label>Channel 1 <input type="number" id="r0" step="0.001" min="0.001" max="10"></label>
-  <label>Channel 2 <input type="number" id="r1" step="0.001" min="0.001" max="10"></label>
-  <label>Channel 3 <input type="number" id="r2" step="0.001" min="0.001" max="10"></label>
+  <label>Channel 1 <input type="number" id="r0" step="0.001" min="0.01" max="100"></label>
+  <label>Channel 2 <input type="number" id="r1" step="0.001" min="0.01" max="100"></label>
+  <label>Channel 3 <input type="number" id="r2" step="0.001" min="0.01" max="100"></label>
 </div>
 
 <div class="card">

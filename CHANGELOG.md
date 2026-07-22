@@ -30,6 +30,12 @@ All notable changes to this project are documented here. Format follows
   for observing behavior with no load connected. Does not and cannot
   affect the real hardware protection.
 
+### Changed
+
+- Current-sense shunt resistance (`senseOhms`, settings page) valid range
+  widened from 0.001-10Ω to 0.01-100Ω, to accommodate a wider range of
+  field-replaced shunt values.
+
 ## [0.1.3] - 2026-07-21
 
 ### Added

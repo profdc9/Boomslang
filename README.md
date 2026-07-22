@@ -128,6 +128,12 @@ three channels' comparators also pull a single shared, open-collector,
 active-LOW `FAULT` line (GPIO1) — since it's wired-OR across all three,
 firmware can tell *that* a channel faulted, but not *which* one.
 
+The 0.05Ω figure above is just the schematic default (R1/R17/R31) — the
+per-channel shunt resistance (`senseOhms`, settings page) is a runtime
+setting used for the firing-current math (`readCurrentA()`), independently
+of the comparator's own fixed hardware trip point. Valid range is
+**0.01Ω–100Ω**, to accommodate a field-replaced shunt of a different value.
+
 **The fault ISR** (`onFaultISR` in `firmware/src/main.cpp`) is a level-1
 `attachInterrupt` on `FAULT`, `IRAM_ATTR`, and deliberately minimal: it does
 exactly two things, a single register write forcing all three TRIGGER
