@@ -63,6 +63,33 @@ constexpr float BATTERY_DIODE_DROP_V = 0.7f;
 // unconnected on the PCB.
 constexpr int PIN_DEBUG_TIMING = 13;
 
+// BENCH-DEBUG ONLY — normally onFaultISR() forces every TRIGGER pin high
+// the instant FAULT asserts, and loop() calls stopSequence() on the
+// transition into a latched fault, as a firmware-level echo of the
+// per-channel hardware protection (Q5/Q10/Q16), which independently and
+// unconditionally pulls a faulted channel's own MOSFET gate low in
+// hardware regardless of this flag — that real transistor protection
+// cannot be disabled from firmware at all. Setting this to 1 skips only
+// firmware's redundant forced-HIGH/stopSequence() calls, so an in-progress
+// pulse keeps running through a FAULT trip instead of being cut short —
+// useful for diagnosing a suspected false trip (e.g. a switching
+// transient) with no igniter/load connected. faultLatched is still set
+// and still blocks new triggers until /clear_fault, same as always; only
+// the forced shutoff of an already-running pulse is skipped. MUST be 0 for
+// any real use with igniters/pyrotechnics connected.
+#define DEBUG_DISABLE_FAULT_SHUTOFF 0
+
+// Software leading-edge blanking: disables interrupts for a short,
+// deterministic window around a *deliberate* trigger-pin write (start or
+// end of a fire pulse), to filter the switching transient that was
+// confirmed to be tripping FAULT with no load attached (the FAULT pin read
+// high again immediately after, with DEBUG_DISABLE_FAULT_SHUTOFF on).
+// Starting guess; tune with a scope on PIN_DEBUG_TIMING/FAULT once the
+// real transient duration is known. 0 disables blanking (interrupts are
+// still briefly disabled/re-enabled around the write, but with no added
+// delay).
+constexpr uint32_t FAULT_BLANKING_US = 30;
+
 // Factory-reset pin: pulled up internally, checked once at boot (see
 // setup()). Ground it (jumper/button to GND) before power-up to reset all
 // settings to their compiled-in defaults. GPIO14 has no strapping or other

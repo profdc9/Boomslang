@@ -5,6 +5,31 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- False `FAULT` trip on every TRIGGER press with no load connected: a
+  switching transient at the moment a trigger pin changes state was
+  tripping the shared hardware `FAULT` line even with zero real current
+  (confirmed by walking the shunt/comparator/snubber netlist — the RC
+  snubber ties drain-to-GND directly, not through the sense shunt, so
+  there was no real fault path with nothing connected). Added software
+  leading-edge blanking (`writeTriggerPinBlanked()`, `FAULT_BLANKING_US`
+  in `config.h`, default 30µs): a deterministic, interrupt-disabled
+  critical section around each deliberate trigger-pin write that filters
+  the transient without touching the actual per-channel hardware
+  protection (which runs in pure analog and was never affected either
+  way). Explicitly clears the GPIO's latched interrupt-status bit before
+  re-enabling interrupts, since a masked-but-resolved edge would
+  otherwise still fire retroactively.
+
+### Added
+
+- `DEBUG_DISABLE_FAULT_SHUTOFF` bench-debug build flag (`config.h`,
+  default off): used while diagnosing the above, lets an in-progress
+  pulse keep running through a `FAULT` trip instead of being cut short,
+  for observing behavior with no load connected. Does not and cannot
+  affect the real hardware protection.
+
 ## [0.1.3] - 2026-07-21
 
 ### Added

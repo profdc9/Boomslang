@@ -103,7 +103,9 @@ void IRAM_ATTR onFaultISR() {
   REG_WRITE(GPIO_OUT_W1TS_REG, 1u << PIN_DEBUG_TIMING);
 #endif
 
+#if !DEBUG_DISABLE_FAULT_SHUTOFF
   REG_WRITE(GPIO_OUT_W1TS_REG, TRIGGER_PIN_MASK);
+#endif
   faultLatched = true;
 
   BaseType_t higherPriorityTaskWoken = pdFALSE;
@@ -165,6 +167,59 @@ float readBatteryVoltage() {
   return v * BATTERY_DIVIDER_RATIO + BATTERY_DIODE_DROP_V;
 }
 
+// See FAULT_BLANKING_US in config.h. A plain detachInterrupt()/
+// delayMicroseconds()/attachInterrupt() sequence would NOT bound the real
+// masked window: delayMicroseconds() busy-waits but doesn't block
+// preemption, so a higher-priority task/ISR (WiFi driver, FreeRTOS tick)
+// becoming ready mid-wait could swap this task out for arbitrarily longer
+// than FAULT_BLANKING_US before we get back to reattaching. noInterrupts()/
+// interrupts() (already used once in this codebase, in handleClearFault(),
+// for the same class of race) disables all interrupts on this core for the
+// span instead — nothing can preempt us until we re-enable them, which
+// also suppresses the FAULT ISR for free (it's attached from this same
+// core), so no separate detach/attach is needed. This makes the window
+// deterministic: FAULT_BLANKING_US plus a few instructions of fixed
+// overhead, not "usually short." delayMicroseconds() itself is safe to
+// call with interrupts disabled — it busy-polls micros(), which reads a
+// free-running hardware counter that keeps advancing regardless of the
+// core's interrupt-enable state, unlike delay()/vTaskDelay() which
+// actually depend on the tick interrupt to wake back up.
+//
+// If FAULT is still asserted once the window elapses, that's treated as a
+// real fault (faultLatched set here, same as onFaultISR() would) rather
+// than a filtered transient — loop()'s existing fault-transition handling
+// (stopSequence()) picks it up on this same pass, so no duplicated
+// shutdown logic is needed here.
+//
+// noInterrupts() only masks the CPU's *servicing* of interrupts — it does
+// not stop the GPIO peripheral's own edge-detector from latching a FALLING
+// edge that occurs during the window into its interrupt-status register.
+// If FAULT dipped and recovered entirely inside the window, our
+// digitalRead() above correctly sees it clear, but that latched status bit
+// is a separate piece of hardware state: left alone, the moment
+// interrupts() re-enables servicing, the CPU would immediately run
+// onFaultISR() for that already-resolved edge, defeating the check we just
+// did. GPIO_STATUS_W1TC_REG explicitly clears it first, so a transient
+// that's genuinely over is discarded rather than replayed.
+//
+// Tradeoffs, both deliberate and bounded: (1) while interrupts are
+// disabled, a genuine fault on a *different* channel also wouldn't reach
+// firmware — FAULT is a single shared wired-OR line with no per-channel
+// interrupt to mask selectively; (2) WiFi/other interrupt servicing on
+// this core is blocked for the same ~30us. Kept short specifically because
+// of these two costs. Neither affects the actual transistor protection
+// (Q5/Q10/Q16 pulling that channel's own gate low) — that's pure analog
+// hardware and runs regardless of any of this.
+void writeTriggerPinBlanked(int ch, uint8_t level) {
+  noInterrupts();
+  digitalWrite(PIN_TRIGGER[ch], level);
+  if (FAULT_BLANKING_US > 0) delayMicroseconds(FAULT_BLANKING_US);
+  bool stillFaulted = (digitalRead(PIN_FAULT) == LOW);
+  REG_WRITE(GPIO_STATUS_W1TC_REG, 1u << PIN_FAULT);
+  interrupts();
+  if (stillFaulted) faultLatched = true;
+}
+
 void startFirePulse(int ch) {
   channels[ch].fireActive = true;
   channels[ch].fireEndsAt = millis() + settings.channelDurationMs[ch];
@@ -172,7 +227,7 @@ void startFirePulse(int ch) {
   channels[ch].avgCurrentA = 0.0f;
   channels[ch].currentSumA = 0.0f;
   channels[ch].currentSampleCount = 0;
-  digitalWrite(PIN_TRIGGER[ch], LOW);
+  writeTriggerPinBlanked(ch, LOW);
   Serial.printf("[fire] channel %d fired for %lu ms\n", ch + 1, (unsigned long)settings.channelDurationMs[ch]);
 }
 
@@ -791,7 +846,7 @@ void loop() {
 
     // Release any channel whose fire pulse has elapsed.
     if (channels[i].fireActive && (int32_t)(now - channels[i].fireEndsAt) >= 0) {
-      digitalWrite(PIN_TRIGGER[i], HIGH);
+      writeTriggerPinBlanked(i, HIGH);
       channels[i].fireActive = false;
     }
   }
@@ -847,8 +902,11 @@ void loop() {
   // "firing" since the ISR already forced every trigger pin high (the
   // digitalWrite() inside stopSequence() is redundant here but harmless).
   if (faultLatched && !faultLatchedPrev) {
+#if !DEBUG_DISABLE_FAULT_SHUTOFF
     stopSequence();
-    Serial.printf("[fault] latched at t=%lu ms\n", (unsigned long)now);
+#endif
+    Serial.printf("[fault] latched at t=%lu ms%s\n", (unsigned long)now,
+                  DEBUG_DISABLE_FAULT_SHUTOFF ? " (DEBUG_DISABLE_FAULT_SHUTOFF: outputs left running)" : "");
   }
   faultLatchedPrev = faultLatched;
 

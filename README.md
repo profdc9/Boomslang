@@ -167,6 +167,48 @@ the hardware comparators are asserting the line *right now* — useful for
 telling "latched from a past event, line's gone high again" apart from
 "still actively faulted."
 
+**Leading-edge blanking on trigger-pin switching**: on real hardware,
+pressing TRIGGER with no igniter/load connected was found to produce an
+immediate `FAULT` with a 0A current snapshot — a switching transient at the
+moment a trigger pin changes state, not a real overcurrent event (confirmed
+by walking the actual shunt/comparator/snubber netlist: the RC snubber ties
+drain-to-GND directly, not through the sense shunt, so there's no real
+current path for a genuine fault with nothing connected). `firmware/src/
+main.cpp`'s `writeTriggerPinBlanked()` now wraps the two deliberate
+trigger-pin writes (fire-start in `startFirePulse()`, and the normal
+pulse-end release in `loop()`) in a short critical section
+(`FAULT_BLANKING_US`, `config.h`, default 30µs): interrupts are disabled
+for that window, the pin is written, and `FAULT` is checked once directly
+afterward — if it's already resolved, that reading is trusted and the
+event is treated as filtered, not a fault.
+
+Two subtleties this required getting right, since a plain
+`delayMicroseconds()`-based wait would not have been safe here:
+
+- `noInterrupts()`/`interrupts()` (not `detachInterrupt()`/
+  `attachInterrupt()` + a bare delay) bounds the window deterministically —
+  a plain busy-wait doesn't block task preemption, so a higher-priority
+  task/ISR becoming ready mid-wait could otherwise extend the real gap well
+  past `FAULT_BLANKING_US`. `delayMicroseconds()` itself is safe to call
+  with interrupts disabled: it polls `micros()`, which reads a free-running
+  hardware counter that keeps advancing regardless of the core's
+  interrupt-enable state — unlike `delay()`/`vTaskDelay()`, which actually
+  depend on the tick interrupt to wake back up, and would hang here.
+- Disabling interrupts at the CPU level only defers *servicing* — it
+  doesn't stop the GPIO peripheral's own edge-detector from latching a
+  FALLING edge into its interrupt-status register during the window. Left
+  alone, a transient that resolves *inside* the window would still fire
+  `onFaultISR()` retroactively the instant interrupts are re-enabled, for
+  an edge that's already history. `writeTriggerPinBlanked()` explicitly
+  clears that latched status bit (`GPIO_STATUS_W1TC_REG`) before
+  re-enabling, so a resolved transient is actually discarded.
+
+None of this touches the real transistor protection described above — the
+per-channel analog comparators keep working purely in hardware throughout,
+completely independent of whether this interrupt is masked. What's
+filtered is only the shared-line firmware echo (forced shutoff + the
+sticky latch) reacting to a switching artifact instead of a real fault.
+
 Why a plain level-1 interrupt is enough: the IRLZ44N's SOA tolerates ~1ms at
 full overcurrent, and even level-1 ISR latency on this chip is reliably
 single-digit microseconds — comfortably inside that margin, especially
@@ -175,6 +217,18 @@ before the ISR even runs. A `DEBUG_FAULT_TIMING` build flag (on by default
 in `config.h`) toggles a spare pin (GPIO13) around ISR entry and the end of
 SENSE sampling, so real end-to-end latency can be measured on a scope once
 hardware exists.
+
+**`DEBUG_DISABLE_FAULT_SHUTOFF`** (`config.h`, default **off**): a
+bench-debug-only build flag used while diagnosing the switching transient
+above. When on, it skips firmware's forced-HIGH/`stopSequence()` echo on a
+fault, letting an in-progress pulse keep running through a `FAULT` trip
+instead of being cut short — useful for observing what's actually
+happening with no load connected. `faultLatched` is still set and still
+blocks new triggers until `/clear_fault`, same as always; only the forced
+shutoff of an already-running pulse is skipped. It does **not** and cannot
+affect the real per-channel hardware protection described above, which
+runs in pure analog and has no firmware involvement at all. Must be off
+for any real use with igniters/pyrotechnics connected.
 
 ## Audible / visible arming indicators
 
