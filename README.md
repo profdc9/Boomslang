@@ -154,7 +154,15 @@ the core opposite the Arduino loop/web server, at a priority high enough to
 preempt normal code but below WiFi's own internal tasks. This snapshot is
 best-effort — the hardware protection may have already cut current before
 it runs — and is exposed as `fault_snapshot_a` in `/status.json` and shown
-in the FAULT banner on the control page.
+in the FAULT banner on the control page. If the banner reads "FAULT —
+overcurrent detected" with no `(X.XXA Y.YYA Z.ZZA)` after it, that means
+`fault_snapshot_a` was never populated for this event — either
+`writeTriggerPinBlanked()`'s own fallback latched the fault directly
+(covered above; it takes its own snapshot too, since it's normal task
+context rather than ISR context and can safely call `analogRead()`
+itself, unlike `onFaultISR()`), or a fault was latched some other way that
+doesn't notify `faultSampleTask` (the boot-time check or `loop()`'s
+defensive backstop poll, for example).
 
 **Clearing a fault**: `faultLatched` is a software latch, not
 self-clearing — `/clear_fault` re-checks the hardware `FAULT` line itself

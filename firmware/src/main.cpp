@@ -217,7 +217,17 @@ void writeTriggerPinBlanked(int ch, uint8_t level) {
   bool stillFaulted = (digitalRead(PIN_FAULT) == LOW);
   REG_WRITE(GPIO_STATUS_W1TC_REG, 1u << PIN_FAULT);
   interrupts();
-  if (stillFaulted) faultLatched = true;
+  if (stillFaulted) {
+    faultLatched = true;
+    // Unlike onFaultISR(), this runs in normal task context, not an ISR —
+    // analogRead() is safe to call directly here (no ADC-driver-mutex
+    // restriction), so this path can capture its own diagnostic snapshot
+    // instead of relying on faultSampleTask's ISR-notification handoff,
+    // which nothing here wakes.
+    for (int i = 0; i < NUM_CHANNELS; i++) faultSnapshotA[i] = readCurrentA(i);
+    faultSnapshotAtMs = millis();
+    faultSnapshotReady = true;
+  }
 }
 
 void startFirePulse(int ch) {

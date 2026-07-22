@@ -21,6 +21,13 @@ All notable changes to this project are documented here. Format follows
   way). Explicitly clears the GPIO's latched interrupt-status bit before
   re-enabling interrupts, since a masked-but-resolved edge would
   otherwise still fire retroactively.
+- `writeTriggerPinBlanked()`'s fallback path (a fault still asserted after
+  the blanking window) now also captures its own `fault_snapshot_a`
+  diagnostic reading, instead of leaving `fault_snapshot_valid` false.
+  Unlike `onFaultISR()`, this path runs in normal task context, so it can
+  safely call `analogRead()` directly rather than relying on
+  `faultSampleTask`'s ISR-notification handoff, which nothing here was
+  waking.
 
 ### Added
 
