@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-21
+
 ### Added
 
 - Live FAULT line indicator on the main control page (`fault_pin_active`
