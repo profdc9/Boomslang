@@ -5,12 +5,24 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Live FAULT line indicator on the main control page (`fault_pin_active`
+  in `/status.json`), a raw `digitalRead(PIN_FAULT)` taken on every poll —
+  distinct from the existing latched `fault` flag, which only clears via
+  Clear Fault Latch.
+
 ### Fixed
 
 - Battery voltage reading now accounts for the series diode ahead of the
   sense divider, adding back its ~0.7V forward drop
   (`BATTERY_DIODE_DROP_V`) so `battery_v` reflects true battery voltage
   rather than reading low.
+- Choppy/glitchy arming buzzer: `tone()` was being re-issued on every
+  `loop()` iteration (unthrottled, up to thousands of times/sec) instead
+  of only when the tone actually starts, stops, or changes frequency.
+  `tone()` reprograms the LEDC PWM peripheral each call, which resets
+  phase and clicks audibly — now edge-triggered.
 
 ### Changed
 

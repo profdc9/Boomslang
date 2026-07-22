@@ -224,6 +224,8 @@ void buildStatusJson(String &out) {
   out += (lowVoltageBlockingArm() ? "true" : "false");
   out += ",\"fault\":";
   out += (faultLatched ? "true" : "false");
+  out += ",\"fault_pin_active\":";
+  out += (digitalRead(PIN_FAULT) == LOW ? "true" : "false");
   out += ",\"fault_snapshot_valid\":";
   out += (faultSnapshotReady ? "true" : "false");
   out += ",\"fault_snapshot_a\":[";

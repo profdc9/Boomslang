@@ -33,6 +33,14 @@ uint32_t readyEnteredAtMs = 0;
 bool blinkOn = false;
 uint32_t lastBlinkToggleMs = 0;
 
+// tone() reprograms the LEDC PWM peripheral (resets phase) on every call —
+// calling it every loop() iteration (loop() has no delay, so this can be
+// thousands of times/sec) produces an audible glitch each time, which is
+// what "choppy" turned out to be. These track the last commanded state so
+// tone()/noTone() only fire on an actual change.
+bool audibleActive = false;
+uint32_t lastToneHz = 0;
+
 bool lowVBlocking = false;  // live: switch closed, but low-voltage lockout is holding DISARMED
 
 bool sequenceActiveFlag = false;  // set via setSequenceActive(), from main.cpp
@@ -167,7 +175,10 @@ void updateArmState() {
   // Visible/audible indication — nothing while DISARMED, regardless of
   // settings; there's nothing to warn about when the loop is open.
   if (state == ArmState::DISARMED) {
-    noTone(PIN_AUDIBLE);
+    if (audibleActive) {
+      noTone(PIN_AUDIBLE);
+      audibleActive = false;
+    }
     digitalWrite(PIN_VISIBLE, LOW);
     return;
   }
@@ -187,11 +198,18 @@ void updateArmState() {
   // "firing in progress" cue. The strobe above keeps its normal blink
   // pattern regardless.
   bool audibleOn = sequenceActiveFlag ? true : blinkOn;
-  if (settings.audibleWhenArmed && audibleOn) {
-    tone(PIN_AUDIBLE, toneHz);
-  } else {
+  bool wantAudible = settings.audibleWhenArmed && audibleOn;
+  if (wantAudible) {
+    // Only re-issue tone() on an actual change (turning on, or the
+    // frequency changing) — see audibleActive's comment above.
+    if (!audibleActive || toneHz != lastToneHz) {
+      tone(PIN_AUDIBLE, toneHz);
+    }
+  } else if (audibleActive) {
     noTone(PIN_AUDIBLE);
   }
+  audibleActive = wantAudible;
+  lastToneHz = toneHz;
 }
 
 ArmState getArmState() { return state; }

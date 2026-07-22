@@ -158,6 +158,15 @@ asserted. A reboot doesn't clear a persistent fault either: `FAULT` is
 checked at boot, before the ISR is even attached, and latches immediately
 if still asserted.
 
+**Live FAULT line indicator**: the main control page also shows a
+`FAULT line: clear/ASSERTED` readout (`fault_pin_active` in
+`/status.json`, a plain `digitalRead(PIN_FAULT)` taken fresh on every
+poll), separate from the latched `fault` flag above. Since `faultLatched`
+only clears via `/clear_fault`, this raw reading is what tells you whether
+the hardware comparators are asserting the line *right now* — useful for
+telling "latched from a past event, line's gone high again" apart from
+"still actively faulted."
+
 Why a plain level-1 interrupt is enough: the IRLZ44N's SOA tolerates ~1ms at
 full overcurrent, and even level-1 ISR latency on this chip is reliably
 single-digit microseconds — comfortably inside that margin, especially
@@ -192,6 +201,14 @@ A low, slow pulse means the countdown is still running and firing is *not*
 yet permitted (giving whoever closed the arm switch time to clear the area).
 A higher, faster pulse means the countdown has elapsed and the device is
 ready to fire.
+
+**Tone stability:** `updateArmState()` runs every `loop()` iteration
+(unthrottled, so potentially thousands of times per second), but only
+calls Arduino's `tone()`/`noTone()` on an actual change — turning on,
+turning off, or the frequency changing — rather than every iteration.
+`tone()` reprograms the ESP32's LEDC PWM peripheral on each call, which
+resets phase and produces an audible click; calling it continuously while
+already sustaining a tone was the cause of a choppy/glitchy buzzer sound.
 
 **Settings:** each channel can be silenced independently via the settings
 page (`/config` on the web UI):

@@ -51,6 +51,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .aux button { background:#333; color:#eee; font-size:1em; padding:14px; }
   .battery { font-size:0.9em; color:#999; margin:-4px 0 12px; text-align:center; }
   .battery.low { color:#ff9e5e; font-weight:700; }
+  .faultline { font-size:0.9em; color:#999; margin:-8px 0 12px; text-align:center; }
+  .faultline.active { color:#ff6b6b; font-weight:700; }
 </style>
 </head>
 <body>
@@ -58,6 +60,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <h1>Boomslang</h1>
 <div id="banner" class="banner disarmed">loading...</div>
 <p class="battery" id="battery">Battery: -- V</p>
+<p class="faultline" id="faultline">FAULT line: --</p>
 <div id="channels"></div>
 <button class="trigger-btn" id="triggerBtn" disabled onclick="doTrigger()">TRIGGER</button>
 <div class="stop-row">
@@ -81,6 +84,13 @@ async function refresh() {
     ? `Battery: ${r.battery_v.toFixed(1)} V — LOW BATTERY`
     : `Battery: ${r.battery_v.toFixed(1)} V`;
   batteryEl.className = 'battery' + (r.low_battery ? ' low' : '');
+
+  // Live raw state of the shared hardware FAULT line, independent of
+  // r.fault (which is the latched flag, only cleared by Clear Fault Latch)
+  // — this shows what the comparators are asserting right now.
+  const faultLineEl = document.getElementById('faultline');
+  faultLineEl.textContent = 'FAULT line: ' + (r.fault_pin_active ? 'ASSERTED' : 'clear');
+  faultLineEl.className = 'faultline' + (r.fault_pin_active ? ' active' : '');
 
   const banner = document.getElementById('banner');
   if (r.fault) {
