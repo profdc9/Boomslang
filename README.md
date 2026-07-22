@@ -311,10 +311,11 @@ is still armed.
 ## Continuity checks
 
 `CONTINUITY1/2/3` sense the same way `SENSEFAILSAFE` does: ~1mA through a red
-LED, whose forward voltage exceeds ~1.5V when the loop (the igniter, in this
-case) is actually closed. That threshold (`CONTINUITY_OK_RAW` in
-`firmware/src/config.h`) is shared with the arm-loop sense, since it's the
-identical circuit at the identical target voltage.
+LED, whose forward voltage exceeds `LED_CLAMP_ARM_VOLTS` (1.25V,
+`firmware/src/config.h`) when the loop (the igniter, in this case) is
+actually closed. That threshold (`CONTINUITY_OK_RAW` in the same file) is
+shared with the arm-loop sense, since it's the identical circuit at the
+identical target voltage.
 
 Beyond the per-channel status dot, continuity gates channel selection and
 triggering in two independent ways:
@@ -347,8 +348,13 @@ that one channel rather than refusing the whole sequence).
 
 The 12V supply is sensed on GPIO2 through a fixed 1:11 resistor divider
 (`BATTERY_DIVIDER_RATIO` in `firmware/src/config.h` — a PCB-fixed ratio, not
-a runtime setting like the current-sense shunts). The reading is shown on
-the main control page as `battery_v`.
+a runtime setting like the current-sense shunts), after passing through a
+series diode ahead of the divider. `readBatteryVoltage()` (`main.cpp`) adds
+back that diode's forward drop (`BATTERY_DIODE_DROP_V`, 0.7V, also a
+compile-time constant — it's a fixed part characteristic, not field-
+adjustable) so `battery_v` reflects true battery voltage, not the
+diode-reduced rail. The reading is shown on the main control page as
+`battery_v`.
 
 **Low-battery warning:** below `lowBatteryThresholdV` (settings page,
 default **11.5V**), the battery readout on the control page turns orange and

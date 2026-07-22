@@ -162,7 +162,7 @@ bool hasContinuity(int ch) {
 float readBatteryVoltage() {
   int raw = analogRead(PIN_BATTERY);
   float v = (raw / (float)ADC_MAX) * ADC_VREF;
-  return v * BATTERY_DIVIDER_RATIO;
+  return v * BATTERY_DIVIDER_RATIO + BATTERY_DIODE_DROP_V;
 }
 
 void startFirePulse(int ch) {

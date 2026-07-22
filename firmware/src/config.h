@@ -26,10 +26,10 @@ constexpr int   ADC_MAX    = 4095;
 
 // CONTINUITY and SENSE_FAILSAFE both work by pushing ~1mA through a red LED
 // and reading the clamped voltage across it: that LED's forward voltage
-// exceeds ~1.5V when the sensed loop (igniter or arm switch) is actually
-// closed, and the node floats near 0V when open. Same circuit, same
-// threshold, for both.
-constexpr float LED_CLAMP_ARM_VOLTS = 1.5f;
+// exceeds this threshold when the sensed loop (igniter or arm switch) is
+// actually closed, and the node floats near 0V when open. Same circuit,
+// same threshold, for both.
+constexpr float LED_CLAMP_ARM_VOLTS = 1.25f;
 constexpr int CONTINUITY_OK_RAW = (int)(LED_CLAMP_ARM_VOLTS / ADC_VREF * ADC_MAX);
 constexpr int FAILSAFE_OK_RAW   = CONTINUITY_OK_RAW;
 
@@ -42,6 +42,12 @@ constexpr int FAILSAFE_OK_RAW   = CONTINUITY_OK_RAW;
 // fixed 1:11 resistor divider (a PCB-fixed ratio, not field-replaceable
 // like the current-sense shunts, so this is a compile-time constant).
 constexpr float BATTERY_DIVIDER_RATIO = 11.0f;
+
+// The battery rail passes through a series diode before reaching the
+// divider, so the sensed voltage reads low by that diode's forward drop
+// regardless of divider ratio. Added back after scaling in
+// readBatteryVoltage() to recover the true battery voltage.
+constexpr float BATTERY_DIODE_DROP_V = 0.7f;
 
 // Debug timing instrumentation: toggles PIN_DEBUG_TIMING high as the first
 // thing onFaultISR() does and low once faultSampleTask finishes reading all

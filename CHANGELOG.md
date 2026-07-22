@@ -5,6 +5,19 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Battery voltage reading now accounts for the series diode ahead of the
+  sense divider, adding back its ~0.7V forward drop
+  (`BATTERY_DIODE_DROP_V`) so `battery_v` reflects true battery voltage
+  rather than reading low.
+
+### Changed
+
+- Continuity/arm-loop LED-clamp sense threshold (`LED_CLAMP_ARM_VOLTS`)
+  lowered from 1.5V to 1.25V to better match the red LED's actual forward
+  voltage.
+
 ## [0.1.2] - 2026-07-14
 
 ### Added
