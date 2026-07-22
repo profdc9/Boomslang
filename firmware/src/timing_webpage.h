@@ -42,11 +42,21 @@ const char TIMING_HTML[] PROGMEM = R"rawliteral(
 
 <script>
 let initialized = false;
+let lastUptimeMs = null;
 
 async function refresh() {
   let r;
   try { r = await (await fetch('/status.json')).json(); }
   catch (e) { document.getElementById('banner').textContent = 'connection lost'; return; }
+
+  // See webpage.h for why: uptime_ms dropping means the device restarted,
+  // and channel selection isn't persisted across a boot, so a stale
+  // checked checkbox from before the restart needs to be rebuilt from
+  // server truth rather than left as-is.
+  if (lastUptimeMs !== null && r.uptime_ms < lastUptimeMs) {
+    initialized = false;
+  }
+  lastUptimeMs = r.uptime_ms;
 
   const banner = document.getElementById('banner');
   if (r.fault) {
@@ -55,6 +65,9 @@ async function refresh() {
   } else if (r.panic_locked) {
     banner.className = 'banner contwarn';
     banner.textContent = 'PANIC pressed — disarm & rearm required before triggering again.';
+  } else if (r.fault_locked) {
+    banner.className = 'banner contwarn';
+    banner.textContent = 'FAULT occurred — disarm & rearm required before triggering again.';
   } else if (r.continuity_locked) {
     banner.className = 'banner contwarn';
     banner.textContent = 'Continuity check failed at trigger — nothing fired. Disarm & rearm to clear.';

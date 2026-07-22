@@ -37,6 +37,54 @@ All notable changes to this project are documented here. Format follows
   "Cannot arm — battery too low" message could show a voltage well above
   the threshold it had supposedly tripped. Both readings now apply the
   same correction.
+- Main/Timing pages could show stale checked channel checkboxes after a
+  device reboot: channel selection was never persisted (by design), but
+  a browser tab left open across a restart kept showing its pre-restart
+  checked state, since checkboxes were only synced from the server once,
+  on first page load. `/status.json` now includes `uptime_ms`; both pages
+  detect it dropping (proof of a restart) and rebuild the channel list
+  from server truth on the next poll.
+- A `FAULT` didn't require a disarm+rearm before retriggering: only the
+  immediate `faultLatched` flag blocked triggering, and that cleared as
+  soon as the fault itself resolved — with nothing else requiring the
+  arm switch to actually be cycled first, unlike every other lockout
+  (PANIC, pre-trigger continuity failure, arm timeout). Added a new
+  sticky `faultLockedOut()`/`notifyFaultOccurred()` pair (`arm_state.cpp`,
+  same shape as the PANIC lockout), set the instant any fault latches and
+  cleared only at the same disarm→rearm transition every other lockout
+  uses.
+- Removed the "Clear Fault Latch" button and `/clear_fault` endpoint.
+  `loop()` now auto-clears a latched fault the instant the device is
+  `DISARMED` and the hardware line re-verifies clear (same multi-sample
+  ~2ms re-check the old endpoint did) — never while armed. Since a fresh
+  disarm+rearm is already required before retriggering (see the lockout
+  above), tying the clear to the disarm half of that cycle removes a
+  redundant manual step, and incidentally removes an ordering ambiguity
+  the manual button had (rearming before vs. after actually clicking
+  clear).
+- Fixed a real gap in `writeTriggerPinBlanked()`'s fallback (the path that
+  catches a fault occurring exactly at a trigger-pin write, e.g. a short
+  present before a channel ever turns on): it only set the sticky fault
+  flags and relied on `loop()`'s later `stopSequence()` call to shut off
+  *other* channels, reached only after that iteration's other work
+  (continuity checks, etc.). With a real load on one channel and a short
+  on another, the loaded channel could keep firing longer than intended.
+  Now forces every trigger pin off immediately via the same atomic
+  register write `onFaultISR()` uses, closing the gap the same way the
+  ISR always has.
+- `FAULT_BLANKING_US` bench-validated at 10µs (down from 30µs, briefly
+  tried at 0µs): at 0, the comparator's own output hadn't necessarily
+  finished settling by the time `writeTriggerPinBlanked()` checked it, so
+  a genuine fault could be missed by that function entirely (caught later
+  by a different path with no diagnostic snapshot) rather than filtered.
+  Also reordered that function's fallback to sample SENSE *before* forcing
+  the shutoff above, rather than after: `analogRead()` is not
+  deterministic (the ADC driver power-cycles the whole peripheral and
+  takes an internal mutex on every call), and forcing shutoff first was
+  found to reliably collapse the diagnostic reading to 0A. Sampling first
+  trades a small amount of additional latency before other channels are
+  forced off (bounded well under the ~1ms SOA tolerance) for a snapshot
+  that's actually meaningful.
 
 ### Added
 

@@ -47,8 +47,6 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .abort-btn { background:#c9821a; color:#fff; }
   .abort-btn:disabled { background:#444; color:#888; }
   .panic-btn { background:#7a0000; color:#fff; }
-  .aux { margin-top:14px; }
-  .aux button { background:#333; color:#eee; font-size:1em; padding:14px; }
   .battery { font-size:0.9em; color:#999; margin:-4px 0 12px; text-align:center; }
   .battery.low { color:#ff9e5e; font-weight:700; }
   .faultline { font-size:0.9em; color:#999; margin:-8px 0 12px; text-align:center; }
@@ -67,17 +65,26 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   <button class="abort-btn" id="abortBtn" disabled onclick="doAbort()">ABORT</button>
   <button class="panic-btn" id="panicBtn" onclick="doPanic()">PANIC</button>
 </div>
-<div class="aux">
-  <button onclick="clearFault()">Clear Fault Latch</button>
-</div>
 
 <script>
 let initialized = false;
+let lastUptimeMs = null;
 
 async function refresh() {
   let r;
   try { r = await (await fetch('/status.json')).json(); }
   catch (e) { document.getElementById('banner').textContent = 'connection lost'; return; }
+
+  // uptime_ms resets to a small value on every boot — if it ever drops
+  // compared to the last poll, the device restarted since then. Channel
+  // selection isn't persisted (resets to unselected on every boot), so a
+  // browser tab left open across a restart would otherwise show stale
+  // checked checkboxes that no longer match the device's actual (cleared)
+  // selection — forcing a full rebuild re-syncs them from server truth.
+  if (lastUptimeMs !== null && r.uptime_ms < lastUptimeMs) {
+    initialized = false;
+  }
+  lastUptimeMs = r.uptime_ms;
 
   const batteryEl = document.getElementById('battery');
   batteryEl.textContent = r.low_battery
@@ -86,8 +93,9 @@ async function refresh() {
   batteryEl.className = 'battery' + (r.low_battery ? ' low' : '');
 
   // Live raw state of the shared hardware FAULT line, independent of
-  // r.fault (which is the latched flag, only cleared by Clear Fault Latch)
-  // — this shows what the comparators are asserting right now.
+  // r.fault (which is the latched flag, only cleared automatically once
+  // disarmed and genuinely resolved) — this shows what the comparators are
+  // asserting right now.
   const faultLineEl = document.getElementById('faultline');
   faultLineEl.textContent = 'FAULT line: ' + (r.fault_pin_active ? 'ASSERTED' : 'clear');
   faultLineEl.className = 'faultline' + (r.fault_pin_active ? ' active' : '');
@@ -103,6 +111,9 @@ async function refresh() {
   } else if (r.panic_locked) {
     banner.className = 'banner contwarn';
     banner.textContent = 'PANIC pressed — disarm & rearm required before triggering again.';
+  } else if (r.fault_locked) {
+    banner.className = 'banner contwarn';
+    banner.textContent = 'FAULT occurred — disarm & rearm required before triggering again.';
   } else if (r.arm_timed_out) {
     banner.className = 'banner contwarn';
     banner.textContent = 'Arm timeout elapsed — disarm & rearm required before triggering again.';
@@ -137,7 +148,7 @@ async function refresh() {
 
   const canTrigger = r.arm_state === 'ready' && !r.fault && !r.sequence_active &&
                      !r.trigger_locked && !r.continuity_locked && !r.panic_locked &&
-                     !r.arm_timed_out && !r.arm_continuity_error;
+                     !r.fault_locked && !r.arm_timed_out && !r.arm_continuity_error;
   document.getElementById('triggerBtn').disabled = !canTrigger;
   // ABORT only does anything while a sequence is running; PANIC always has
   // an effect (it sets the disarm/rearm requirement even with nothing
@@ -212,13 +223,6 @@ async function doAbort() {
 async function doPanic() {
   const resp = await fetch('/panic', { method: 'POST' });
   await resp.json();
-  refresh();
-}
-
-async function clearFault() {
-  const resp = await fetch('/clear_fault', { method: 'POST' });
-  const j = await resp.json();
-  if (!j.ok) alert(j.error || 'still faulted');
   refresh();
 }
 

@@ -83,9 +83,9 @@ constexpr int PIN_DEBUG_TIMING = 13;
 // pulse keeps running through a FAULT trip instead of being cut short —
 // useful for diagnosing a suspected false trip (e.g. a switching
 // transient) with no igniter/load connected. faultLatched is still set
-// and still blocks new triggers until /clear_fault, same as always; only
-// the forced shutoff of an already-running pulse is skipped. MUST be 0 for
-// any real use with igniters/pyrotechnics connected.
+// and still blocks new triggers until disarmed and genuinely resolved,
+// same as always; only the forced shutoff of an already-running pulse is
+// skipped. MUST be 0 for any real use with igniters/pyrotechnics connected.
 #define DEBUG_DISABLE_FAULT_SHUTOFF 0
 
 // Software leading-edge blanking: disables interrupts for a short,
@@ -93,10 +93,19 @@ constexpr int PIN_DEBUG_TIMING = 13;
 // end of a fire pulse), to filter the switching transient that was
 // confirmed to be tripping FAULT with no load attached (the FAULT pin read
 // high again immediately after, with DEBUG_DISABLE_FAULT_SHUTOFF on).
-// Starting guess; tune with a scope on PIN_DEBUG_TIMING/FAULT once the
-// real transient duration is known. 0 disables blanking (interrupts are
-// still briefly disabled/re-enabled around the write, but with no added
-// delay).
+// Bench-validated at 10us: with 0 (no wait at all), FAULT's own comparator
+// output hadn't necessarily finished settling by the time writeTrigger-
+// PinBlanked() checks it, so a genuine fault could be missed by this
+// function entirely (caught later, elsewhere, with no diagnostic snapshot)
+// rather than filtered. 10us reliably avoids both that and the original
+// no-load false trip. The delay also sets *where* on the fault current's
+// natural rise/decay curve the diagnostic snapshot lands — shorter delay
+// samples closer to the true peak (see readCurrentA() call sites), longer
+// delay samples further into the decay; tune with a scope on
+// PIN_DEBUG_TIMING/FAULT if the real transient/settling duration needs to
+// be known precisely. 0 disables blanking (interrupts are still briefly
+// disabled/re-enabled around the write, but with no added delay) — not
+// recommended given the above.
 constexpr uint32_t FAULT_BLANKING_US = 10;
 
 // Factory-reset pin: pulled up internally, checked once at boot (see

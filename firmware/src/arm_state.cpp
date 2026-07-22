@@ -24,6 +24,7 @@ bool locked = false;       // post-fire lockout (requireRearmAfterFire)
 bool contLocked = false;   // pre-trigger continuity-check-failed lockout
 bool panicLocked = false;  // PANIC button pressed
 bool timedOut = false;     // READY held longer than settings.armTimeoutSec
+bool faultLocked = false;  // a FAULT occurred (sticky, independent of faultLatched)
 
 // Set the instant COUNTDOWN transitions to READY; armTimeoutSec counts from
 // here, not from when the switch was first closed, so a long armCountdownSec
@@ -153,12 +154,13 @@ void updateArmState() {
           state = ArmState::COUNTDOWN;
           countdownEndsAtMs = now + settings.armCountdownSec * 1000UL;
           // Being here at all means the arm switch was open — that's the
-          // "disarm" half of "disarm and rearm" satisfied, for all four
+          // "disarm" half of "disarm and rearm" satisfied, for all five
           // lockouts.
           locked = false;
           contLocked = false;
           panicLocked = false;
           timedOut = false;
+          faultLocked = false;
         }
       } else {
         lowVBlocking = false;
@@ -265,3 +267,7 @@ bool panicLockedOut() { return panicLocked; }
 void notifyPanicPressed() { panicLocked = true; }
 
 bool armTimedOut() { return timedOut; }
+
+bool faultLockedOut() { return faultLocked; }
+
+void notifyFaultOccurred() { faultLocked = true; }

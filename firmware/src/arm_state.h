@@ -67,3 +67,13 @@ void notifyPanicPressed();
 // physical arm loop, so the hardware switch remains the actual power
 // interlock regardless of this flag.
 bool armTimedOut();
+
+// Independent of faultLatched (main.cpp) — that flag only tracks whether a
+// fault is *currently* asserted/unacknowledged, and clears automatically
+// (loop(), DISARMED only) once the hardware line reads clear. This flag is
+// separate and sticky: once any fault has occurred, it stays set — same
+// shape as panicLockedOut() — requiring a fresh disarm+rearm before
+// another TRIGGER is accepted, even after the fault itself has been
+// cleared. Cleared at the same point the other lockouts are.
+bool faultLockedOut();
+void notifyFaultOccurred();

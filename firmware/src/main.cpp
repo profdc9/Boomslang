@@ -63,8 +63,9 @@ float batteryVoltage = 0.0f;
 bool sequenceActive = false;
 
 // Set by onFaultISR() the instant the shared FAULT line drops, and by a
-// defensive poll in loop() as a backstop. Only cleared by handleClearFault()
-// after re-checking the hardware line is actually clear.
+// defensive poll in loop() as a backstop. Only cleared automatically while
+// DISARMED, after re-checking the hardware line is actually clear — see
+// loop()'s DISARMED-only fault-clearing pass.
 volatile bool faultLatched = false;
 bool faultLatchedPrev = false;       // loop()-only, for edge detection
 
@@ -173,9 +174,10 @@ float readBatteryVoltage() {
 // preemption, so a higher-priority task/ISR (WiFi driver, FreeRTOS tick)
 // becoming ready mid-wait could swap this task out for arbitrarily longer
 // than FAULT_BLANKING_US before we get back to reattaching. noInterrupts()/
-// interrupts() (already used once in this codebase, in handleClearFault(),
-// for the same class of race) disables all interrupts on this core for the
-// span instead — nothing can preempt us until we re-enable them, which
+// interrupts() (already used once in this codebase, in loop()'s
+// DISARMED-only fault-clearing pass, for the same class of race) disables
+// all interrupts on this core for the span instead — nothing can preempt
+// us until we re-enable them, which
 // also suppresses the FAULT ISR for free (it's attached from this same
 // core), so no separate detach/attach is needed. This makes the window
 // deterministic: FAULT_BLANKING_US plus a few instructions of fixed
@@ -223,10 +225,24 @@ void writeTriggerPinBlanked(int ch, uint8_t level) {
     // analogRead() is safe to call directly here (no ADC-driver-mutex
     // restriction), so this path can capture its own diagnostic snapshot
     // instead of relying on faultSampleTask's ISR-notification handoff,
-    // which nothing here wakes.
+    // which nothing here wakes. Deliberately sampled *before* the forced
+    // shutoff below: analogRead() is not deterministic (the underlying
+    // driver power-cycles the whole ADC peripheral and takes an internal
+    // mutex on every call), and forcing every channel off first was found
+    // to reliably collapse the reading to 0A before this loop ever ran.
+    // Sampling first trades a small amount of additional, ADC-read-bound
+    // latency before *other* channels are forced off, for a snapshot
+    // that's actually meaningful.
     for (int i = 0; i < NUM_CHANNELS; i++) faultSnapshotA[i] = readCurrentA(i);
     faultSnapshotAtMs = millis();
     faultSnapshotReady = true;
+    // Mirror onFaultISR()'s shutoff — still done immediately, right here,
+    // rather than relying on loop()'s later stopSequence() call (reached
+    // only after the rest of this loop() iteration's other work —
+    // continuity checks, etc.). That's what actually closes the "a
+    // *different* channel that was already firing into a real load stays
+    // on" gap; only its ordering relative to sampling above changed.
+    REG_WRITE(GPIO_OUT_W1TS_REG, TRIGGER_PIN_MASK);
   }
 }
 
@@ -263,7 +279,9 @@ void buildStatusJson(String &out) {
                                                        : "ready";
 
   out = "{";
-  out += "\"arm_state\":\"";
+  out += "\"uptime_ms\":";
+  out += millis();
+  out += ",\"arm_state\":\"";
   out += stateStr;
   out += "\",\"countdown_remaining_s\":";
   out += String(countdownRemainingMs() / 1000.0f, 1);
@@ -273,6 +291,8 @@ void buildStatusJson(String &out) {
   out += (continuityLockedOut() ? "true" : "false");
   out += ",\"panic_locked\":";
   out += (panicLockedOut() ? "true" : "false");
+  out += ",\"fault_locked\":";
+  out += (faultLockedOut() ? "true" : "false");
   out += ",\"arm_timed_out\":";
   out += (armTimedOut() ? "true" : "false");
   out += ",\"arm_continuity_error\":";
@@ -362,6 +382,11 @@ void handleTrigger() {
   }
   if (faultLatched) {
     server.send(409, "application/json", "{\"ok\":false,\"error\":\"fault latched\"}");
+    return;
+  }
+  if (faultLockedOut()) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"fault occurred - disarm and rearm before triggering again\"}");
     return;
   }
   if (getArmState() != ArmState::READY) {
@@ -696,28 +721,6 @@ void handleConfigReset() {
   server.send(200, "application/json", "{\"ok\":true}");
 }
 
-void handleClearFault() {
-  // Re-check the hardware line several times over ~2ms rather than trusting
-  // one instantaneous read, so a line chattering right at the comparator's
-  // trip point doesn't get cleared into a still-live fault.
-  bool stillFaulted = false;
-  for (int i = 0; i < 10; i++) {
-    if (digitalRead(PIN_FAULT) == LOW) { stillFaulted = true; break; }
-    delayMicroseconds(200);
-  }
-
-  if (stillFaulted) {
-    server.send(409, "application/json", "{\"ok\":false,\"error\":\"fault still active\"}");
-    return;
-  }
-
-  noInterrupts();
-  faultLatched = false;
-  interrupts();
-  faultSnapshotReady = false;  // old snapshot belongs to the fault we just cleared
-  server.send(200, "application/json", "{\"ok\":true}");
-}
-
 void setup() {
   // SAFETY FIRST: claim the trigger pins and force them HIGH before anything
   // else runs (Serial, WiFi bring-up, etc. all take time). Hardware already
@@ -838,7 +841,6 @@ void setup() {
   server.on("/select", HTTP_POST, handleSelect);
   server.on("/channel_delay", HTTP_POST, handleChannelDelay);
   server.on("/channel_duration", HTTP_POST, handleChannelDuration);
-  server.on("/clear_fault", HTTP_POST, handleClearFault);
   server.on("/config", HTTP_GET, handleConfigPage);
   server.on("/timing", HTTP_GET, handleTimingPage);
   server.on("/stats", HTTP_GET, handleStatsPage);
@@ -932,10 +934,41 @@ void loop() {
 #if !DEBUG_DISABLE_FAULT_SHUTOFF
     stopSequence();
 #endif
+    // Sticky, independent of faultLatched itself (which resets
+    // automatically once disarmed and the hardware line reads genuinely
+    // clear): a real fault unconditionally requires a fresh disarm+rearm
+    // before another TRIGGER, same as PANIC, regardless of
+    // requireRearmAfterFire.
+    notifyFaultOccurred();
     Serial.printf("[fault] latched at t=%lu ms%s\n", (unsigned long)now,
                   DEBUG_DISABLE_FAULT_SHUTOFF ? " (DEBUG_DISABLE_FAULT_SHUTOFF: outputs left running)" : "");
   }
   faultLatchedPrev = faultLatched;
+
+  // A latched fault clears itself automatically once genuinely resolved,
+  // but only while DISARMED (arm switch open, gate drivers already
+  // unpowered regardless of this) — never while armed, so a fault
+  // mid-sequence can't silently clear itself out from under an operator
+  // who hasn't actually disarmed. There's no separate "clear fault" button
+  // for this: a disarm+rearm is already required before retriggering
+  // anyway (faultLockedOut()), so tying the clear to the disarm half of
+  // that cycle removes a redundant manual step. Re-checks the hardware
+  // line several times over ~2ms rather than trusting one instantaneous
+  // read, so a line chattering right at the comparator's trip point
+  // doesn't get cleared into a still-live fault.
+  if (faultLatched && getArmState() == ArmState::DISARMED) {
+    bool stillFaulted = false;
+    for (int i = 0; i < 10; i++) {
+      if (digitalRead(PIN_FAULT) == LOW) { stillFaulted = true; break; }
+      delayMicroseconds(200);
+    }
+    if (!stillFaulted) {
+      noInterrupts();
+      faultLatched = false;
+      interrupts();
+      faultSnapshotReady = false;  // old snapshot belongs to the fault we just cleared
+    }
+  }
 
   // Log the fault-sample task's snapshot once, the first loop() iteration
   // after it becomes available (it may still be a few loop iterations

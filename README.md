@@ -158,28 +158,44 @@ in the FAULT banner on the control page. If the banner reads "FAULT —
 overcurrent detected" with no `(X.XXA Y.YYA Z.ZZA)` after it, that means
 `fault_snapshot_a` was never populated for this event — either
 `writeTriggerPinBlanked()`'s own fallback latched the fault directly
-(covered above; it takes its own snapshot too, since it's normal task
+(covered below; it takes its own snapshot too, since it's normal task
 context rather than ISR context and can safely call `analogRead()`
 itself, unlike `onFaultISR()`), or a fault was latched some other way that
-doesn't notify `faultSampleTask` (the boot-time check or `loop()`'s
-defensive backstop poll, for example).
+doesn't notify `faultSampleTask` (the boot-time check, for example).
 
 **Clearing a fault**: `faultLatched` is a software latch, not
-self-clearing — `/clear_fault` re-checks the hardware `FAULT` line itself
-(several reads over ~2ms, so a line chattering right at the trip point
-doesn't get cleared into a still-live fault) and refuses if it's still
-asserted. A reboot doesn't clear a persistent fault either: `FAULT` is
-checked at boot, before the ISR is even attached, and latches immediately
-if still asserted.
+self-clearing. It clears automatically — no button, no endpoint — the
+instant the device is `DISARMED` and the hardware `FAULT` line re-checks
+clear (several reads over ~2ms, so a line chattering right at the trip
+point doesn't get cleared into a still-live fault; see `loop()`'s
+DISARMED-only fault-clearing pass in `main.cpp`). It's tied specifically
+to being disarmed — never while armed, so a fault mid-sequence can't clear
+itself out from under an operator who hasn't actually disarmed — which
+matches the fact that a disarm+rearm is already required before
+retriggering anyway (see `faultLockedOut()` below); there was no reason to
+also require a separate manual "clear fault" button on top of that. A
+reboot doesn't clear a persistent fault either: `FAULT` is checked at
+boot, before the ISR is even attached, and latches immediately if still
+asserted.
+
+**Fault lockout** (`faultLockedOut()`/`notifyFaultOccurred()`,
+`arm_state.cpp`): independent of `faultLatched` above — that flag only
+tracks whether a fault is *currently* asserted/unacknowledged, and clears
+automatically as soon as it's genuinely resolved and the device is
+disarmed. This is a separate, sticky flag: once any fault has occurred, it
+stays set — same shape as the PANIC lockout — unconditionally requiring a
+fresh disarm+rearm before another TRIGGER is accepted, regardless of
+`requireRearmAfterFire`, even after the fault itself has already cleared.
+Cleared at the same disarm→rearm transition point every other lockout is.
 
 **Live FAULT line indicator**: the main control page also shows a
 `FAULT line: clear/ASSERTED` readout (`fault_pin_active` in
 `/status.json`, a plain `digitalRead(PIN_FAULT)` taken fresh on every
 poll), separate from the latched `fault` flag above. Since `faultLatched`
-only clears via `/clear_fault`, this raw reading is what tells you whether
-the hardware comparators are asserting the line *right now* — useful for
-telling "latched from a past event, line's gone high again" apart from
-"still actively faulted."
+only clears automatically while disarmed, this raw reading is what tells
+you whether the hardware comparators are asserting the line *right now* —
+useful for telling "latched from a past event, line's gone high again"
+apart from "still actively faulted."
 
 **Leading-edge blanking on trigger-pin switching**: on real hardware,
 pressing TRIGGER with no igniter/load connected was found to produce an
@@ -225,6 +241,57 @@ completely independent of whether this interrupt is masked. What's
 filtered is only the shared-line firmware echo (forced shutoff + the
 sticky latch) reacting to a switching artifact instead of a real fault.
 
+**Why `FAULT_BLANKING_US` isn't 0**: it's tempting to think a shorter
+window is strictly better (less time other channels go unprotected by the
+shared-line echo — the per-channel hardware protection is never affected
+either way). Bench testing found a real lower bound, though: at `0`
+(no wait at all), a genuine fault could be missed by `writeTriggerPinBlanked()`
+entirely rather than filtered — the comparator's own output hadn't
+necessarily finished settling into a stable level by the instant this
+function checks it, so a real, ongoing fault could read as
+"already resolved" and get discarded, only to be caught later by some
+other, slower path with no diagnostic snapshot at all. `10µs` reliably
+avoids that while still filtering the original no-load transient. The
+delay also determines *where* on the fault current's natural rise/decay
+curve the diagnostic snapshot below lands: shorter delay samples closer to
+the true peak, longer delay samples further into the decay (current
+doesn't collapse to zero the instant the comparator trips — the driver
+stage and any loop inductance both take some real, if small, additional
+time). `10µs` was chosen empirically on the bench, not derived
+analytically — if the real transient/settling duration ever needs to be
+known precisely, `DEBUG_FAULT_TIMING`/GPIO13 above is there for exactly
+that.
+
+**`writeTriggerPinBlanked()`'s fallback and multi-channel shutoff**: if
+`FAULT` is still asserted once the blanking window elapses, this function
+also samples SENSE for its own diagnostic snapshot (same reasoning as
+`faultSampleTask` above — normal task context, so `analogRead()` is safe
+here too) and forces every trigger pin off via the same atomic register
+write `onFaultISR()` uses, mirroring what the ISR does for a fault that
+isn't coincident with a trigger-pin write. This closes a real gap found
+during testing: with a real load on one channel and a short on another,
+if the short's fault was caught by this fallback (i.e. it happened right
+at that *other* channel's own trigger-pin write) rather than by
+`onFaultISR()`, the loaded channel could keep firing for longer than
+intended — this function used to only set the sticky fault flags and rely
+on `loop()`'s later `stopSequence()` call to shut off *other* channels,
+reached only after that iteration's other work (continuity checks, etc.).
+Forcing every pin off directly here, immediately, closes that gap the
+same way the ISR always has.
+
+The sampling happens *before* that forced shutoff, deliberately: forcing
+every channel off first, before sampling, was found to reliably collapse
+the diagnostic reading to 0A — unlike the local hardware protection, which
+reacts in true analog time and was never the bottleneck here,
+`analogRead()` itself is not deterministic (the underlying ESP-IDF driver
+power-cycles the whole ADC peripheral and takes an internal mutex on every
+single call), so forcing a shutoff immediately beforehand left nothing
+meaningful to measure by the time sampling actually ran. Sampling first
+trades a small amount of additional, ADC-read-bound latency before *other*
+channels are forced off, for a snapshot that's actually usable — still
+bounded well under the IRLZ44N's ~1ms SOA tolerance, just no longer
+effectively instantaneous the way the plain register write is on its own.
+
 Why a plain level-1 interrupt is enough: the IRLZ44N's SOA tolerates ~1ms at
 full overcurrent, and even level-1 ISR latency on this chip is reliably
 single-digit microseconds — comfortably inside that margin, especially
@@ -240,8 +307,9 @@ above. When on, it skips firmware's forced-HIGH/`stopSequence()` echo on a
 fault, letting an in-progress pulse keep running through a `FAULT` trip
 instead of being cut short — useful for observing what's actually
 happening with no load connected. `faultLatched` is still set and still
-blocks new triggers until `/clear_fault`, same as always; only the forced
-shutoff of an already-running pulse is skipped. It does **not** and cannot
+blocks new triggers until disarmed and genuinely resolved, same as
+always; only the forced shutoff of an already-running pulse is skipped.
+It does **not** and cannot
 affect the real per-channel hardware protection described above, which
 runs in pure analog and has no firmware involvement at all. Must be off
 for any real use with igniters/pyrotechnics connected.
@@ -312,7 +380,13 @@ single press.
 - A checkbox, on both the Main and Timing pages, to include that channel in
   the next trigger. **Not** persisted — it resets on every page load, so a
   stale "everything selected" state from a previous session can never carry
-  over silently.
+  over silently. It also resets on every device *reboot*, which the page
+  detects on its own: `/status.json`'s `uptime_ms` resets to a small value
+  on every boot, and if a poll ever sees it drop compared to the previous
+  poll, that means the device restarted since then — the page then rebuilds
+  its channel list from scratch on the next poll, so a browser tab left
+  open across a power cycle can't keep showing checked boxes that no longer
+  match the device's actual (cleared) selection.
 - An **offset** in milliseconds (0-60000, default 0), on the Timing page,
   from the TRIGGER press to that channel's trigger output going low.
 - A **duration** in milliseconds (0-30000, default 500), also on the Timing
