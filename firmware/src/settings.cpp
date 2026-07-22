@@ -35,6 +35,7 @@ void loadSettings() {
   settings.armTimeoutSec = prefs.getUInt("armTimeout", settings.armTimeoutSec);
   settings.visibleWhenArmed = prefs.getBool("visibleArmed", settings.visibleWhenArmed);
   settings.audibleWhenArmed = prefs.getBool("audibleArmed", settings.audibleWhenArmed);
+  settings.speakerVolume = prefs.getUInt("spkVolume", settings.speakerVolume);
   settings.requireRearmAfterFire = prefs.getBool("reqRearm", settings.requireRearmAfterFire);
   settings.checkContinuityOnArm = prefs.getBool("contOnArm", settings.checkContinuityOnArm);
   settings.checkContinuityBeforeTrigger = prefs.getBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);
@@ -73,6 +74,7 @@ bool saveSettings() {
   prefs.putUInt("armTimeout", settings.armTimeoutSec);
   prefs.putBool("visibleArmed", settings.visibleWhenArmed);
   prefs.putBool("audibleArmed", settings.audibleWhenArmed);
+  prefs.putUInt("spkVolume", settings.speakerVolume);
   prefs.putBool("reqRearm", settings.requireRearmAfterFire);
   prefs.putBool("contOnArm", settings.checkContinuityOnArm);
   prefs.putBool("contBeforeTrig", settings.checkContinuityBeforeTrigger);

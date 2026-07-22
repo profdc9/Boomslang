@@ -191,7 +191,9 @@ current path for a genuine fault with nothing connected). `firmware/src/
 main.cpp`'s `writeTriggerPinBlanked()` now wraps the two deliberate
 trigger-pin writes (fire-start in `startFirePulse()`, and the normal
 pulse-end release in `loop()`) in a short critical section
-(`FAULT_BLANKING_US`, `config.h`, default 30µs): interrupts are disabled
+(`FAULT_BLANKING_US`, `config.h`, default 10µs — tuned down from an
+initial 30µs guess after bench testing confirmed the real switching
+transient clears well within that window): interrupts are disabled
 for that window, the pin is written, and `FAULT` is checked once directly
 afterward — if it's already resolved, that reading is trusted and the
 event is treated as filtered, not a fault.
@@ -272,19 +274,31 @@ ready to fire.
 
 **Tone stability:** `updateArmState()` runs every `loop()` iteration
 (unthrottled, so potentially thousands of times per second), but only
-calls Arduino's `tone()`/`noTone()` on an actual change — turning on,
-turning off, or the frequency changing — rather than every iteration.
-`tone()` reprograms the ESP32's LEDC PWM peripheral on each call, which
-resets phase and produces an audible click; calling it continuously while
-already sustaining a tone was the cause of a choppy/glitchy buzzer sound.
+touches the buzzer's LEDC output on an actual change — turning on, turning
+off, the frequency changing, or the volume changing — rather than every
+iteration. Arduino's `tone()`/`noTone()` aren't used here: `tone()`
+reprograms the ESP32's LEDC PWM peripheral and resets phase on every call
+(producing an audible click if called continuously — the original cause of
+a choppy/glitchy buzzer sound), and it always drives a fixed 50% duty
+cycle, which rules it out for volume control (below) regardless. Frequency
+and duty are set independently instead, via `ledcChangeFrequency()`/
+`ledcWrite()` (`AUDIBLE_LEDC_CHANNEL`, `config.h`).
+
+**Volume:** `speakerVolume` (settings page, 0-10, default **10**) maps
+linearly to 0-50% PWM duty cycle — 50% is as loud as a square-wave drive
+gets (maximum RMS), so 10 reproduces the same loudness `tone()` always
+used before this was configurable. Recomputed every `updateArmState()`
+call, so changing it takes effect immediately, live, with no disarm/rearm
+needed.
 
 **Settings:** each channel can be silenced independently via the settings
 page (`/config` on the web UI):
 
 - `visibleWhenArmed` — strobe LEDs flash during `COUNTDOWN`/`READY` (default **on**)
 - `audibleWhenArmed` — buzzer sounds during `COUNTDOWN`/`READY` (default **on**)
+- `speakerVolume` — buzzer loudness, 0-10 (default **10**, see above)
 
-Both are persisted to flash (survive power cycles) and, like all settings
+All are persisted to flash (survive power cycles) and, like all settings
 changes, can only be saved while the device is disarmed.
 
 ## Trigger sequence
@@ -440,6 +454,15 @@ compile-time constant — it's a fixed part characteristic, not field-
 adjustable) so `battery_v` reflects true battery voltage, not the
 diode-reduced rail. The reading is shown on the main control page as
 `battery_v`.
+
+`arm_state.cpp`'s `sampleBatteryVoltage()` — a separate, independent
+reading of `PIN_BATTERY` used specifically for the low-voltage lockout
+decision below — applies the same `BATTERY_DIODE_DROP_V` correction. The
+two readings need to agree: without it, the lockout was comparing an
+uncorrected (0.7V-low) value against the threshold while the banner showed
+the corrected `battery_v`, so the displayed voltage in a "Cannot arm —
+battery too low" message could be well above the threshold it had
+supposedly tripped.
 
 **Low-battery warning:** below `lowBatteryThresholdV` (settings page,
 default **11.5V**), the battery readout on the control page turns orange and

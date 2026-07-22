@@ -20,6 +20,15 @@ constexpr int PIN_AUDIBLE        = 41; // buzzer driver (J6)
 constexpr int PIN_VISIBLE        = 42; // onboard white/blue strobe LEDs
 constexpr int PIN_BATTERY        = 2;  // 12V supply, through a 1:11 resistor divider
 
+// LEDC channel/resolution for the arming buzzer (PIN_AUDIBLE). Driven
+// directly via ledcWrite()/ledcChangeFrequency() rather than tone()/
+// noTone() — ledcWriteTone() (which tone() calls internally) always
+// forces exactly 50% duty on every call, which is incompatible with
+// volume control (settings.speakerVolume): frequency and duty need to be
+// set independently. 10-bit resolution matches what tone() itself used.
+constexpr uint8_t AUDIBLE_LEDC_CHANNEL          = 0;
+constexpr uint8_t AUDIBLE_LEDC_RESOLUTION_BITS  = 10;
+
 // ADC scaling: 12-bit, 3.3V reference, 11dB attenuation.
 constexpr float ADC_VREF   = 3.3f;
 constexpr int   ADC_MAX    = 4095;
@@ -88,7 +97,7 @@ constexpr int PIN_DEBUG_TIMING = 13;
 // real transient duration is known. 0 disables blanking (interrupts are
 // still briefly disabled/re-enabled around the write, but with no added
 // delay).
-constexpr uint32_t FAULT_BLANKING_US = 30;
+constexpr uint32_t FAULT_BLANKING_US = 10;
 
 // Factory-reset pin: pulled up internally, checked once at boot (see
 // setup()). Ground it (jumper/button to GND) before power-up to reset all

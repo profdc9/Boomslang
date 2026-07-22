@@ -536,6 +536,8 @@ void handleConfigGet() {
   out += (settings.visibleWhenArmed ? "true" : "false");
   out += ",\"audible_when_armed\":";
   out += (settings.audibleWhenArmed ? "true" : "false");
+  out += ",\"speaker_volume\":";
+  out += settings.speakerVolume;
   out += ",\"require_rearm\":";
   out += (settings.requireRearmAfterFire ? "true" : "false");
   out += ",\"check_continuity_on_arm\":";
@@ -590,6 +592,16 @@ void handleConfigPost() {
   long armTimeout = server.arg("arm_timeout_s").toInt();
   if (armTimeout < 0 || armTimeout > 3600) {
     server.send(400, "application/json", "{\"ok\":false,\"error\":\"arm_timeout_s out of range (0-3600)\"}");
+    return;
+  }
+
+  if (!server.hasArg("speaker_volume")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing speaker_volume\"}");
+    return;
+  }
+  long speakerVolume = server.arg("speaker_volume").toInt();
+  if (speakerVolume < 0 || speakerVolume > 10) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"speaker_volume out of range (0-10)\"}");
     return;
   }
 
@@ -654,6 +666,7 @@ void handleConfigPost() {
   settings.armTimeoutSec = (uint32_t)armTimeout;
   settings.visibleWhenArmed = visible;
   settings.audibleWhenArmed = audible;
+  settings.speakerVolume = (uint32_t)speakerVolume;
   settings.requireRearmAfterFire = reqRearm;
   settings.checkContinuityOnArm = contOnArm;
   settings.checkContinuityBeforeTrigger = contBeforeTrig;
@@ -719,8 +732,12 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(PIN_FAULT, INPUT_PULLUP);  // R40 already pulls this to 3V3 externally; belt-and-suspenders
-  pinMode(PIN_AUDIBLE, OUTPUT);
-  digitalWrite(PIN_AUDIBLE, LOW);
+  // LEDC (not plain digitalWrite) — arm_state.cpp drives frequency/duty
+  // independently for volume control. 1000 here is arbitrary; output
+  // starts silent (duty 0) regardless, until updateArmState() drives it.
+  ledcSetup(AUDIBLE_LEDC_CHANNEL, 1000, AUDIBLE_LEDC_RESOLUTION_BITS);
+  ledcAttachPin(PIN_AUDIBLE, AUDIBLE_LEDC_CHANNEL);
+  ledcWrite(AUDIBLE_LEDC_CHANNEL, 0);
   pinMode(PIN_VISIBLE, OUTPUT);
   digitalWrite(PIN_VISIBLE, LOW);
 

@@ -33,6 +33,12 @@ struct Settings {
   bool visibleWhenArmed = true;
   bool audibleWhenArmed = true;
 
+  // Buzzer volume, 0-10, mapped linearly to 0-50% PWM duty cycle (50% is as
+  // loud as a square-wave drive gets — maximum RMS). Default 10 (50% duty)
+  // matches the fixed duty tone()/ledcWriteTone() always used before this
+  // was configurable, so upgrading a board doesn't change its loudness.
+  uint32_t speakerVolume = 10;
+
   // If true, a TRIGGER press locks out any further TRIGGER press until the
   // arm switch is opened and closed again (a fresh disarm+rearm cycle,
   // countdown included). If false, another TRIGGER is accepted as soon as

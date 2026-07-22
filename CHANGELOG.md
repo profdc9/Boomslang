@@ -14,7 +14,8 @@ All notable changes to this project are documented here. Format follows
   snubber ties drain-to-GND directly, not through the sense shunt, so
   there was no real fault path with nothing connected). Added software
   leading-edge blanking (`writeTriggerPinBlanked()`, `FAULT_BLANKING_US`
-  in `config.h`, default 30µs): a deterministic, interrupt-disabled
+  in `config.h`, default 10µs — tuned down from an initial 30µs guess
+  after bench testing): a deterministic, interrupt-disabled
   critical section around each deliberate trigger-pin write that filters
   the transient without touching the actual per-channel hardware
   protection (which runs in pure analog and was never affected either
@@ -28,6 +29,14 @@ All notable changes to this project are documented here. Format follows
   safely call `analogRead()` directly rather than relying on
   `faultSampleTask`'s ISR-notification handoff, which nothing here was
   waking.
+- Low-voltage arm lockout could trip (or fail to) at a voltage that
+  disagreed with the displayed reading: `arm_state.cpp`'s
+  `sampleBatteryVoltage()` — used for the actual lockout decision — never
+  got the `BATTERY_DIODE_DROP_V` correction added to `main.cpp`'s
+  `readBatteryVoltage()` (used for the displayed `battery_v`), so a
+  "Cannot arm — battery too low" message could show a voltage well above
+  the threshold it had supposedly tripped. Both readings now apply the
+  same correction.
 
 ### Added
 
@@ -36,6 +45,14 @@ All notable changes to this project are documented here. Format follows
   pulse keep running through a `FAULT` trip instead of being cut short,
   for observing behavior with no load connected. Does not and cannot
   affect the real hardware protection.
+- Buzzer volume control (`speakerVolume`, settings page, 0-10, default
+  10): maps linearly to 0-50% PWM duty cycle. Required moving the buzzer
+  off `tone()`/`noTone()` entirely — `tone()` always forces a fixed 50%
+  duty cycle internally, incompatible with variable volume — onto direct
+  `ledcChangeFrequency()`/`ledcWrite()` calls that set frequency and duty
+  independently, each only re-issued on an actual change (same reasoning
+  as the earlier choppy-buzzer fix). Takes effect live while armed, no
+  rearm needed.
 
 ### Changed
 

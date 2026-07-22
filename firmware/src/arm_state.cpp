@@ -33,13 +33,30 @@ uint32_t readyEnteredAtMs = 0;
 bool blinkOn = false;
 uint32_t lastBlinkToggleMs = 0;
 
-// tone() reprograms the LEDC PWM peripheral (resets phase) on every call —
-// calling it every loop() iteration (loop() has no delay, so this can be
-// thousands of times/sec) produces an audible glitch each time, which is
-// what "choppy" turned out to be. These track the last commanded state so
-// tone()/noTone() only fire on an actual change.
+// Driven via ledcChangeFrequency()/ledcWrite() directly (see
+// AUDIBLE_LEDC_CHANNEL in config.h) rather than tone()/noTone() — the
+// latter always forces exactly 50% duty on every call, which both (a)
+// reprograms the LEDC peripheral's timer and resets phase on every call,
+// producing an audible glitch if called every loop() iteration (loop() has
+// no delay, so this can be thousands of times/sec — this is what "choppy"
+// turned out to be), and (b) is incompatible with volume control, which
+// needs duty set independently of frequency. These track the last
+// commanded frequency/duty so ledcChangeFrequency()/ledcWrite() only fire
+// on an actual change, same reasoning as the old tone()-based code.
 bool audibleActive = false;
 uint32_t lastToneHz = 0;
+uint32_t lastDutyRaw = 0;
+
+// settings.speakerVolume (0-10) mapped linearly to 0-50% PWM duty — 50% is
+// as loud as a square-wave drive gets (maximum RMS). Recomputed from
+// settings every call, so a volume change while armed takes effect
+// immediately rather than needing a disarm/rearm cycle.
+uint32_t audibleDutyRaw() {
+  float fraction = (settings.speakerVolume / 10.0f) * 0.5f;
+  if (fraction < 0.0f) fraction = 0.0f;
+  if (fraction > 0.5f) fraction = 0.5f;
+  return (uint32_t)(fraction * ((1u << AUDIBLE_LEDC_RESOLUTION_BITS) - 1));
+}
 
 bool lowVBlocking = false;  // live: switch closed, but low-voltage lockout is holding DISARMED
 
@@ -68,9 +85,14 @@ bool sampleRawArmed() {
 // Independent read of PIN_BATTERY, mirroring main.cpp's readBatteryVoltage()
 // — this module already senses SENSEFAILSAFE on its own rather than relying
 // on main.cpp's rolling variables, so this follows the same self-contained
-// pattern.
+// pattern. Must include the same BATTERY_DIODE_DROP_V correction — this is
+// the reading the low-voltage lockout actually compares against the
+// threshold, and it needs to agree with the battery_v shown in the UI, or
+// the lockout can trip (or fail to) at a voltage that doesn't match what
+// the displayed reading and threshold would suggest.
 float sampleBatteryVoltage() {
-  return (analogRead(PIN_BATTERY) / (float)ADC_MAX) * ADC_VREF * BATTERY_DIVIDER_RATIO;
+  float v = (analogRead(PIN_BATTERY) / (float)ADC_MAX) * ADC_VREF;
+  return v * BATTERY_DIVIDER_RATIO + BATTERY_DIODE_DROP_V;
 }
 
 // Call once per updateArmState() — debounces and applies hysteresis to the
@@ -176,8 +198,9 @@ void updateArmState() {
   // settings; there's nothing to warn about when the loop is open.
   if (state == ArmState::DISARMED) {
     if (audibleActive) {
-      noTone(PIN_AUDIBLE);
+      ledcWrite(AUDIBLE_LEDC_CHANNEL, 0);
       audibleActive = false;
+      lastDutyRaw = 0;
     }
     digitalWrite(PIN_VISIBLE, LOW);
     return;
@@ -199,17 +222,19 @@ void updateArmState() {
   // pattern regardless.
   bool audibleOn = sequenceActiveFlag ? true : blinkOn;
   bool wantAudible = settings.audibleWhenArmed && audibleOn;
-  if (wantAudible) {
-    // Only re-issue tone() on an actual change (turning on, or the
-    // frequency changing) — see audibleActive's comment above.
-    if (!audibleActive || toneHz != lastToneHz) {
-      tone(PIN_AUDIBLE, toneHz);
-    }
-  } else if (audibleActive) {
-    noTone(PIN_AUDIBLE);
+  uint32_t dutyRaw = wantAudible ? audibleDutyRaw() : 0;
+
+  // Frequency and duty are independent LEDC calls — only re-issue either
+  // on an actual change, same reasoning as the old tone()-based code.
+  if (toneHz != lastToneHz) {
+    ledcChangeFrequency(AUDIBLE_LEDC_CHANNEL, toneHz, AUDIBLE_LEDC_RESOLUTION_BITS);
+    lastToneHz = toneHz;
+  }
+  if (dutyRaw != lastDutyRaw) {
+    ledcWrite(AUDIBLE_LEDC_CHANNEL, dutyRaw);
+    lastDutyRaw = dutyRaw;
   }
   audibleActive = wantAudible;
-  lastToneHz = toneHz;
 }
 
 ArmState getArmState() { return state; }

@@ -54,6 +54,7 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
   <div class="hint">If READY is held this long — armed but never triggered, or nothing selected — TRIGGER is refused until a fresh disarm+rearm, even if the arm switch (J5) is still physically closed. Does not touch the switch itself or the buzzer/strobe pattern; it only blocks firing. 0 disables this (matches prior behavior).</div>
   <div class="checkrow"><span>Visible flash when armed</span><input type="checkbox" id="visibleArmed"></div>
   <div class="checkrow"><span>Audible alarm when armed</span><input type="checkbox" id="audibleArmed"></div>
+  <label>Buzzer volume (0-10) <input type="number" id="speakerVolume" step="1" min="0" max="10"></label>
   <div class="checkrow"><span>Require disarm+rearm before re-triggering</span><input type="checkbox" id="reqRearm"></div>
 </div>
 
@@ -115,6 +116,7 @@ async function loadConfig() {
   document.getElementById('armTimeout').value = c.arm_timeout_s;
   document.getElementById('visibleArmed').checked = c.visible_when_armed;
   document.getElementById('audibleArmed').checked = c.audible_when_armed;
+  document.getElementById('speakerVolume').value = c.speaker_volume;
   document.getElementById('reqRearm').checked = c.require_rearm;
   document.getElementById('contOnArm').checked = c.check_continuity_on_arm;
   document.getElementById('contBeforeTrig').checked = c.check_continuity_before_trigger;
@@ -133,6 +135,7 @@ async function save() {
   const armTimeout = document.getElementById('armTimeout').value;
   const visible = document.getElementById('visibleArmed').checked ? '1' : '0';
   const audible = document.getElementById('audibleArmed').checked ? '1' : '0';
+  const speakerVolume = document.getElementById('speakerVolume').value;
   const reqRearm = document.getElementById('reqRearm').checked ? '1' : '0';
   const contOnArm = document.getElementById('contOnArm').checked ? '1' : '0';
   const contBeforeTrig = document.getElementById('contBeforeTrig').checked ? '1' : '0';
@@ -146,7 +149,7 @@ async function save() {
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
     `&arm_countdown_s=${countdown}&arm_timeout_s=${armTimeout}&visible_when_armed=${visible}` +
-    `&audible_when_armed=${audible}&require_rearm=${reqRearm}` +
+    `&audible_when_armed=${audible}&speaker_volume=${speakerVolume}&require_rearm=${reqRearm}` +
     `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}` +
     `&low_battery_threshold_v=${lowBattV}&low_voltage_lockout_enabled=${lvLockout}` +
     `&wifi_ssid=${wifiSsid}&wifi_password=${wifiPassword}&wifi_relay_confirm=${wifiRelayConfirm}`,
