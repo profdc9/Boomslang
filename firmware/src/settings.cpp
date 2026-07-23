@@ -30,6 +30,10 @@ void loadSettings() {
     settings.channelDelayMs[i] = prefs.getUInt(key, settings.channelDelayMs[i]);
     keyFor("chDur", i, key, sizeof(key));
     settings.channelDurationMs[i] = prefs.getUInt(key, settings.channelDurationMs[i]);
+    keyFor("chPwmHz", i, key, sizeof(key));
+    settings.channelPwmHz[i] = prefs.getUInt(key, settings.channelPwmHz[i]);
+    keyFor("chPwmDuty", i, key, sizeof(key));
+    settings.channelPwmDutyPercent[i] = prefs.getUInt(key, settings.channelPwmDutyPercent[i]);
   }
   settings.armCountdownSec = prefs.getUInt("armCountdown", settings.armCountdownSec);
   settings.armTimeoutSec = prefs.getUInt("armTimeout", settings.armTimeoutSec);
@@ -69,6 +73,10 @@ bool saveSettings() {
     prefs.putUInt(key, settings.channelDelayMs[i]);
     keyFor("chDur", i, key, sizeof(key));
     prefs.putUInt(key, settings.channelDurationMs[i]);
+    keyFor("chPwmHz", i, key, sizeof(key));
+    prefs.putUInt(key, settings.channelPwmHz[i]);
+    keyFor("chPwmDuty", i, key, sizeof(key));
+    prefs.putUInt(key, settings.channelPwmDutyPercent[i]);
   }
   prefs.putUInt("armCountdown", settings.armCountdownSec);
   prefs.putUInt("armTimeout", settings.armTimeoutSec);

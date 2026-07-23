@@ -44,6 +44,16 @@ struct ChannelState {
   float avgCurrentA = 0.0f;
   float currentSumA = 0.0f;      // accumulator behind avgCurrentA
   uint32_t currentSampleCount = 0;
+
+  // PWM cycling within this pulse (see startFirePulse()/loop()). Captured
+  // from settings at fire-start, not read live, so a mid-pulse settings
+  // change doesn't alter a cycle already in progress — same convention as
+  // fireEndsAt capturing channelDurationMs at fire-start.
+  bool pwmEnabled = false;
+  uint32_t pwmPeriodMs = 0;
+  uint32_t pwmOnMs = 0;
+  uint32_t pwmNextToggleAtMs = 0;
+  bool pwmPinOn = false;  // current logical pin state within the PWM cycle
 };
 ChannelState channels[NUM_CHANNELS];
 
@@ -247,14 +257,41 @@ void writeTriggerPinBlanked(int ch, uint8_t level) {
 }
 
 void startFirePulse(int ch) {
+  uint32_t now = millis();
   channels[ch].fireActive = true;
-  channels[ch].fireEndsAt = millis() + settings.channelDurationMs[ch];
+  channels[ch].fireEndsAt = now + settings.channelDurationMs[ch];
   channels[ch].peakCurrentA = 0.0f;
   channels[ch].avgCurrentA = 0.0f;
   channels[ch].currentSumA = 0.0f;
   channels[ch].currentSampleCount = 0;
-  writeTriggerPinBlanked(ch, LOW);
-  Serial.printf("[fire] channel %d fired for %lu ms\n", ch + 1, (unsigned long)settings.channelDurationMs[ch]);
+
+  // 100% duty is just "continuously on" — no different from PWM being
+  // disabled, so it's excluded here to avoid a pointless off-then-
+  // immediately-back-on toggle every period (each paying the full
+  // blanking-check cost) for no actual change in delivered power. 0% duty
+  // means no power at all, handled separately below rather than turning on
+  // only to immediately toggle back off.
+  channels[ch].pwmEnabled = settings.channelPwmHz[ch] > 0 &&
+                            settings.channelPwmDutyPercent[ch] > 0 &&
+                            settings.channelPwmDutyPercent[ch] < 100;
+  if (channels[ch].pwmEnabled) {
+    channels[ch].pwmPeriodMs = 1000 / settings.channelPwmHz[ch];
+    if (channels[ch].pwmPeriodMs < 1) channels[ch].pwmPeriodMs = 1;
+    channels[ch].pwmOnMs = (channels[ch].pwmPeriodMs * settings.channelPwmDutyPercent[ch]) / 100;
+    channels[ch].pwmPinOn = true;
+    writeTriggerPinBlanked(ch, LOW);
+    channels[ch].pwmNextToggleAtMs = now + channels[ch].pwmOnMs;
+    Serial.printf("[fire] channel %d fired for %lu ms (PWM %luHz, %lu%% duty)\n", ch + 1,
+                  (unsigned long)settings.channelDurationMs[ch], (unsigned long)settings.channelPwmHz[ch],
+                  (unsigned long)settings.channelPwmDutyPercent[ch]);
+  } else if (settings.channelPwmHz[ch] > 0 && settings.channelPwmDutyPercent[ch] == 0) {
+    channels[ch].pwmPinOn = false;
+    Serial.printf("[fire] channel %d fired for %lu ms (PWM 0%% duty - no power delivered)\n", ch + 1,
+                  (unsigned long)settings.channelDurationMs[ch]);
+  } else {
+    writeTriggerPinBlanked(ch, LOW);
+    Serial.printf("[fire] channel %d fired for %lu ms\n", ch + 1, (unsigned long)settings.channelDurationMs[ch]);
+  }
 }
 
 // Immediately stops any channel mid-pulse (forces its trigger back HIGH
@@ -334,6 +371,10 @@ void buildStatusJson(String &out) {
     out += settings.channelDelayMs[i];
     out += ",\"duration_ms\":";
     out += settings.channelDurationMs[i];
+    out += ",\"pwm_hz\":";
+    out += settings.channelPwmHz[i];
+    out += ",\"pwm_duty_percent\":";
+    out += settings.channelPwmDutyPercent[i];
     out += ",\"last_current_a\":";
     out += String(channels[i].lastCurrentA, 3);
     out += ",\"peak_current_a\":";
@@ -526,6 +567,58 @@ void handleChannelDuration() {
   }
 
   settings.channelDurationMs[ch] = (uint32_t)durationMs;
+  bool saved = saveSettings();
+  if (!saved) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"applied, but not saved to flash - disarm to persist\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleChannelPwmHz() {
+  if (!server.hasArg("ch") || !server.hasArg("pwm_hz")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or pwm_hz\"}");
+    return;
+  }
+  int ch = server.arg("ch").toInt();
+  if (ch < 0 || ch >= NUM_CHANNELS) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad channel\"}");
+    return;
+  }
+  long pwmHz = server.arg("pwm_hz").toInt();
+  if (pwmHz < 0 || pwmHz > 1000) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"pwm_hz out of range (0-1000)\"}");
+    return;
+  }
+
+  settings.channelPwmHz[ch] = (uint32_t)pwmHz;
+  bool saved = saveSettings();
+  if (!saved) {
+    server.send(409, "application/json",
+                "{\"ok\":false,\"error\":\"applied, but not saved to flash - disarm to persist\"}");
+    return;
+  }
+  server.send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleChannelPwmDuty() {
+  if (!server.hasArg("ch") || !server.hasArg("pwm_duty")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing ch or pwm_duty\"}");
+    return;
+  }
+  int ch = server.arg("ch").toInt();
+  if (ch < 0 || ch >= NUM_CHANNELS) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"bad channel\"}");
+    return;
+  }
+  long pwmDuty = server.arg("pwm_duty").toInt();
+  if (pwmDuty < 0 || pwmDuty > 100) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"pwm_duty out of range (0-100)\"}");
+    return;
+  }
+
+  settings.channelPwmDutyPercent[ch] = (uint32_t)pwmDuty;
   bool saved = saveSettings();
   if (!saved) {
     server.send(409, "application/json",
@@ -841,6 +934,8 @@ void setup() {
   server.on("/select", HTTP_POST, handleSelect);
   server.on("/channel_delay", HTTP_POST, handleChannelDelay);
   server.on("/channel_duration", HTTP_POST, handleChannelDuration);
+  server.on("/channel_pwm_hz", HTTP_POST, handleChannelPwmHz);
+  server.on("/channel_pwm_duty", HTTP_POST, handleChannelPwmDuty);
   server.on("/config", HTTP_GET, handleConfigPage);
   server.on("/timing", HTTP_GET, handleTimingPage);
   server.on("/stats", HTTP_GET, handleStatsPage);
@@ -864,6 +959,9 @@ void loop() {
 
     // Peak/average accumulation for this pulse — sampled before checking
     // for pulse end below, so the very last active reading still counts.
+    // Sampled every iteration regardless of PWM on/off phase, so avgCurrentA
+    // naturally comes out duty-cycle-weighted (off-phase samples read ~0 and
+    // pull the average down proportionally) with no special-case math needed.
     if (channels[i].fireActive) {
       if (channels[i].lastCurrentA > channels[i].peakCurrentA) {
         channels[i].peakCurrentA = channels[i].lastCurrentA;
@@ -873,10 +971,44 @@ void loop() {
       channels[i].avgCurrentA = channels[i].currentSumA / channels[i].currentSampleCount;
     }
 
+    // PWM toggling within an active pulse. Still within the overall
+    // fireEndsAt window (checked separately below) and due for its next
+    // edge.
+    if (channels[i].fireActive && channels[i].pwmEnabled &&
+        (int32_t)(now - channels[i].fireEndsAt) < 0 &&
+        (int32_t)(now - channels[i].pwmNextToggleAtMs) >= 0) {
+      if (channels[i].pwmPinOn) {
+        // Turning off is always safe — no re-check needed, same as the
+        // normal end-of-pulse release below.
+        writeTriggerPinBlanked(i, HIGH);
+        channels[i].pwmPinOn = false;
+        channels[i].pwmNextToggleAtMs = now + (channels[i].pwmPeriodMs - channels[i].pwmOnMs);
+      } else if (faultLatched || getArmState() != ArmState::READY || !hasContinuity(i)) {
+        // Re-check right before turning back on — same reasoning as the
+        // scheduled-fire pass's fire-time check: conditions can change
+        // mid-sequence, and a PWM cycle can run for a while. Not the actual
+        // safety mechanism (the arm switch opening cuts gate power outright
+        // regardless of firmware) — belt-and-suspenders/logging, and stops
+        // this channel's remaining PWM cycles rather than trying again.
+        Serial.printf("[trigger] channel %d PWM cycle stopped early (fault=%d ready=%d continuity=%d)\n",
+                      i + 1, faultLatched, getArmState() == ArmState::READY, hasContinuity(i));
+        channels[i].fireActive = false;
+      } else {
+        writeTriggerPinBlanked(i, LOW);
+        channels[i].pwmPinOn = true;
+        channels[i].pwmNextToggleAtMs = now + channels[i].pwmOnMs;
+      }
+    }
+
     // Release any channel whose fire pulse has elapsed.
     if (channels[i].fireActive && (int32_t)(now - channels[i].fireEndsAt) >= 0) {
-      writeTriggerPinBlanked(i, HIGH);
+      // For a PWM channel already mid-off-phase, the pin is already high —
+      // skip the redundant blanked write (and its blanking-window cost).
+      if (!channels[i].pwmEnabled || channels[i].pwmPinOn) {
+        writeTriggerPinBlanked(i, HIGH);
+      }
       channels[i].fireActive = false;
+      channels[i].pwmPinOn = false;
     }
   }
 

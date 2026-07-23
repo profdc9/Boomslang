@@ -54,6 +54,22 @@ struct Settings {
   // output stays low once it fires.
   uint32_t channelDurationMs[NUM_CHANNELS] = {500, 500, 500};
 
+  // Per-channel PWM cycling during that duration, for a lower average
+  // heating rate than a full-on pulse (e.g. slow-heating igniter/nichrome
+  // element rather than an instant e-match). 0 disables PWM entirely —
+  // the channel is simply on for the whole duration, as before. Valid
+  // range 1-1000Hz; doesn't need to be precise (see startFirePulse()/
+  // loop() in main.cpp), just an approximate average on-time. Default
+  // 10Hz so a sensible frequency is already set if duty is later lowered
+  // below 100% (see channelPwmDutyPercent).
+  uint32_t channelPwmHz[NUM_CHANNELS] = {10, 10, 10};
+
+  // Duty cycle (percent, 0-100) while channelPwmHz[ch] > 0. Default 100%
+  // (and 100% at any other time) means continuously on for the whole
+  // duration — no different from PWM being disabled — so a fresh board
+  // fires exactly as before until duty is deliberately lowered.
+  uint32_t channelPwmDutyPercent[NUM_CHANNELS] = {100, 100, 100};
+
   // While armed, continuously verify every selected channel still has
   // continuity; if not, block triggering (self-clears the instant it's
   // fixed, or the feature is turned off — no disarm needed for this one).

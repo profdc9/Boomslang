@@ -183,7 +183,14 @@ function updateChannels(r) {
     const dot = document.getElementById(`dot${i}`);
     dot.className = 'dot ' + ((c.firing || c.scheduled) ? 'mid' : (c.continuity ? 'ok' : 'bad'));
     const state = c.firing ? 'FIRING' : (c.scheduled ? 'scheduled' : (c.continuity ? 'continuity OK' : 'no continuity'));
-    document.getElementById(`status${i}`).textContent = `${state} · ${c.last_current_a.toFixed(2)} A`;
+    // While firing, show the running average rather than the instantaneous
+    // reading: last_current_a is sampled at whatever instant /status.json
+    // happens to be polled (every 500ms), which for a PWM-cycled channel
+    // often lands on an "off" phase and reads ~0A even with real current
+    // flowing during on-phases. avg_current_a already accounts for duty
+    // cycle and updates continuously, so it's representative either way.
+    const currentA = c.firing ? c.avg_current_a : c.last_current_a;
+    document.getElementById(`status${i}`).textContent = `${state} · ${currentA.toFixed(2)} A`;
     document.getElementById(`sel${i}`).disabled = r.selection_locked;
   });
 }

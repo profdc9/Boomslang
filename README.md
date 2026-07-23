@@ -111,8 +111,9 @@ a backend/data-model split. Each has a small nav row (Main · Timing · Stats
   to read and tap through during an actual arm/fire sequence.
 - **`/timing`** — setup screen: the same channel checkboxes as Main (same
   `/select` endpoint — selection can be changed from either page) plus each
-  channel's offset/duration in milliseconds (see Trigger sequence below). No
-  live operational state and no TRIGGER/ABORT/PANIC here.
+  channel's offset/duration in milliseconds and optional PWM cycling
+  (Hz/duty%, see Trigger sequence below). No live operational state and no
+  TRIGGER/ABORT/PANIC here.
 - **`/stats`** — read-only review: peak and average current per channel
   from its most recent pulse (see Trigger sequence below).
 - **`/config` (Settings)** — every persisted setting described throughout
@@ -402,6 +403,32 @@ the device to be disarmed — a change made while armed still applies
 immediately in RAM for that session, but won't survive a reboot until you
 disarm and it actually gets persisted.
 
+**PWM cycling** (`channelPwmHz`/`channelPwmDutyPercent`, Timing page, per
+channel): instead of being continuously on for the whole duration, a
+channel can instead cycle on/off within that same duration window — for a
+lower average heating rate than a full-on pulse (e.g. slow-heating
+nichrome/resistive element rather than an instant e-match). `channelPwmHz`
+(0-1000Hz, default **10Hz**, `0` disables PWM — continuously on for the
+whole duration, exactly as before) sets the cycle rate; `channelPwmDutyPercent`
+(0-100%, default **100%**) sets how much of each cycle is on. 100% duty
+(the default) is treated the same as PWM being disabled — continuously on,
+no cycling — so a fresh board fires exactly as it always did until duty is
+deliberately lowered; 0% duty delivers no power at all for the whole
+duration. The rate doesn't need to be precise — it's a plain software timer
+in `loop()`, not hardware PWM — just an approximate average on-time.
+
+**Every PWM edge gets the same protection as a single trigger-on event**:
+each on/off transition, not just the first, goes through
+`writeTriggerPinBlanked()` (see Overcurrent fault protection above), so a
+fault at any point during a PWM burst is caught exactly the same way it
+would be for a plain single-shot fire. Turning *off* is always immediate;
+before turning back *on* at each cycle, firmware re-checks fault/armed/
+continuity — the same belt-and-suspenders re-check described below for the
+initial fire-time check, just repeated at every cycle rather than once,
+since a PWM burst can run for a while. A failed re-check stops that
+channel's remaining cycles for the rest of the sequence rather than
+retrying.
+
 **Pressing TRIGGER** is only possible when `arm_state` is `READY`, there's no
 active fault, no sequence is already running, and (if
 `requireRearmAfterFire` is on) the device hasn't fired since it was last
@@ -432,7 +459,16 @@ highest single sample (peak) and the running mean of all samples (average).
 Both are reset at the start of each pulse and then simply held afterward —
 so they remain readable (`peak_current_a`/`avg_current_a` in
 `/status.json`, shown per channel on the `/stats` page) for the rest of the
-session, until that channel fires again.
+session, until that channel fires again. Sampling continues every
+iteration regardless of PWM on/off phase, so the average comes out
+duty-cycle-weighted automatically — off-phase samples read ~0A and pull it
+down proportionally — with no special-case math needed. The main control
+page's live "FIRING" status shows this running average rather than the
+instantaneous reading while a channel is actively firing, since the
+instantaneous value is sampled at an arbitrary instant relative to the PWM
+cycle (the page polls every 500ms) and would otherwise often show ~0A
+simply by catching an off-phase, even with real current flowing during
+on-phases.
 
 ## ABORT and PANIC buttons
 

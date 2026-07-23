@@ -5,6 +5,35 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+- Per-channel PWM cycling during a fire pulse (`channelPwmHz`/
+  `channelPwmDutyPercent`, Timing page, new `/channel_pwm_hz` and
+  `/channel_pwm_duty` endpoints): instead of being continuously on for the
+  whole duration, a channel can instead cycle on/off within it, for a
+  lower average heating rate than a full-on pulse. `channelPwmHz` (0-1000,
+  default 10Hz, 0 disables) sets the rate; `channelPwmDutyPercent` (0-100,
+  default 100%) sets how much of each cycle is on — 100% behaves exactly
+  like PWM being disabled (continuously on), so a fresh board fires
+  exactly as before until duty is deliberately lowered, and 0% delivers no
+  power at all. Every PWM edge, not just the first, goes through the same
+  `writeTriggerPinBlanked()` fault-blanking protection as a single-shot
+  fire; turning back on at each cycle re-checks fault/armed/continuity,
+  same reasoning as the existing fire-time recheck, and stops the
+  channel's remaining cycles rather than retrying if any fail.
+
+### Fixed
+
+- Main control page's live "FIRING" current readout showed 0A for a
+  PWM-cycled channel most of the time: it displayed the instantaneous
+  `last_current_a` reading, sampled at whatever arbitrary instant
+  `/status.json` happened to be polled (every 500ms) — which for a
+  lower-duty-cycle channel often lands on an off-phase. Now shows the
+  running average (`avg_current_a`) while firing instead, which already
+  comes out duty-cycle-weighted for free (off-phase samples read ~0A and
+  pull it down proportionally, no special-case math needed) and updates
+  continuously regardless of which PWM phase the poll happens to catch.
+
 ## [0.1.5] - 2026-07-22
 
 ### Fixed

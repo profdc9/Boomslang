@@ -2,10 +2,11 @@
 
 // Timing setup screen: which channels are selected (mirrors the same
 // checkbox/endpoint as the main page — set up selection and timing
-// together, or double-check it later) plus each selected channel's offset
-// and duration in milliseconds. No live operational state (continuity,
-// firing) and no TRIGGER/ABORT/PANIC here — this is "what will happen and
-// when," not the operational screen.
+// together, or double-check it later), each selected channel's offset and
+// duration in milliseconds, and optional PWM cycling (Hz/duty%) during
+// that duration for a lower average heating rate than a full-on pulse. No
+// live operational state (continuity, firing) and no TRIGGER/ABORT/PANIC
+// here — this is "what will happen and when," not the operational screen.
 const char TIMING_HTML[] PROGMEM = R"rawliteral(
 <!doctype html>
 <html>
@@ -114,6 +115,10 @@ function buildChannels(r) {
       <div class="ch-detail">
         <span>offset (ms) <input type="number" id="delay${i}" step="100" min="0" max="60000" value="${c.delay_ms}" inputmode="numeric" onchange="saveDelay(${i})"></span>
         <span>duration (ms) <input type="number" id="dur${i}" step="100" min="0" max="30000" value="${c.duration_ms}" inputmode="numeric" onchange="saveDuration(${i})"></span>
+      </div>
+      <div class="ch-detail">
+        <span>PWM (Hz, 0=off) <input type="number" id="pwmHz${i}" step="1" min="0" max="1000" value="${c.pwm_hz}" inputmode="numeric" onchange="savePwmHz(${i})"></span>
+        <span>PWM duty (%) <input type="number" id="pwmDuty${i}" step="5" min="0" max="100" value="${c.pwm_duty_percent}" inputmode="numeric" onchange="savePwmDuty(${i})"></span>
       </div>`;
     div.appendChild(el);
   });
@@ -144,6 +149,16 @@ async function saveDelay(i) {
 async function saveDuration(i) {
   const v = document.getElementById(`dur${i}`).value;
   await fetch(`/channel_duration?ch=${i}&duration_ms=${v}`, { method: 'POST' });
+}
+
+async function savePwmHz(i) {
+  const v = document.getElementById(`pwmHz${i}`).value;
+  await fetch(`/channel_pwm_hz?ch=${i}&pwm_hz=${v}`, { method: 'POST' });
+}
+
+async function savePwmDuty(i) {
+  const v = document.getElementById(`pwmDuty${i}`).value;
+  await fetch(`/channel_pwm_duty?ch=${i}&pwm_duty=${v}`, { method: 'POST' });
 }
 
 setInterval(refresh, 500);
