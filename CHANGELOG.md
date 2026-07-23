@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-07-23
+
 ### Changed
 
 - Nav row on all four pages (Main/Timing/Stats/Settings) is now a 2x2
