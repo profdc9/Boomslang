@@ -5,6 +5,18 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-22
+
+### Fixed
+
+- Hardware: overcurrent comparator's pull-down transistor base resistor
+  reduced from 1k to 100R. Scoped bench testing found the slower base
+  resistor let fault current overshoot well past the ~13A trip threshold
+  (38A) before the gate was actually pulled down; 100R speeds up that
+  transistor's reaction, cutting the overshoot to ~15A. Verified in both
+  a QUCS-S/ngspice simulation (`Simulations/ThresholdTrip`, now in the
+  repo) and on the bench.
+
 ## [0.1.4] - 2026-07-22
 
 ### Fixed
