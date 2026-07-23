@@ -16,8 +16,10 @@ const char STATS_HTML[] PROGMEM = R"rawliteral(
   body { font-family: -apple-system, sans-serif; background:#111; color:#eee; margin:0; padding:12px; font-size:17px; }
   h1 { font-size:1.5em; margin:0 0 8px; }
   a { color:#8ab4ff; }
-  .nav { font-size:0.9em; text-align:center; margin-bottom:10px; }
-  .nav b { color:#eee; }
+  .nav { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; font-size:1.8em; }
+  .nav a, .nav b { display:block; text-align:center; padding:10px; border-radius:10px; text-decoration:none; font-weight:700; }
+  .nav a { background:#1c1c1c; color:#8ab4ff; }
+  .nav b { background:#333; color:#eee; }
   .hint { color:#999; font-size:0.9em; margin-bottom:14px; }
   .channel { background:#1c1c1c; border-radius:12px; padding:14px; margin-bottom:10px; }
   .channel h2 { font-size:1.1em; margin:0 0 8px; }
@@ -26,7 +28,7 @@ const char STATS_HTML[] PROGMEM = R"rawliteral(
 </style>
 </head>
 <body>
-<div class="nav"><a href="/">Main</a> &middot; <a href="/timing">Timing</a> &middot; <b>Stats</b> &middot; <a href="/config">Settings</a></div>
+<div class="nav"><a href="/">Main</a><a href="/timing">Timing</a><b>Stats</b><a href="/config">Settings</a></div>
 <h1>Boomslang Stats</h1>
 <p class="hint">Peak and average current from each channel's most recent pulse. Held until that channel fires again.</p>
 <div id="channels"></div>

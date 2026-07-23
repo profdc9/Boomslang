@@ -19,8 +19,10 @@ const char TIMING_HTML[] PROGMEM = R"rawliteral(
   body { font-family: -apple-system, sans-serif; background:#111; color:#eee; margin:0; padding:12px; font-size:17px; }
   h1 { font-size:1.5em; margin:0 0 8px; }
   a { color:#8ab4ff; }
-  .nav { font-size:0.9em; text-align:center; margin-bottom:10px; }
-  .nav b { color:#eee; }
+  .nav { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; font-size:1.8em; }
+  .nav a, .nav b { display:block; text-align:center; padding:10px; border-radius:10px; text-decoration:none; font-weight:700; }
+  .nav a { background:#1c1c1c; color:#8ab4ff; }
+  .nav b { background:#333; color:#eee; }
   .banner { padding:14px; border-radius:10px; margin-bottom:12px; font-weight:700; text-align:center; font-size:1.05em; }
   .disarmed { background:#4d3b1b; color:#ffdca6; }
   .countdown { background:#4d4a1b; color:#fff3a6; }
@@ -36,7 +38,7 @@ const char TIMING_HTML[] PROGMEM = R"rawliteral(
 </style>
 </head>
 <body>
-<div class="nav"><a href="/">Main</a> &middot; <b>Timing</b> &middot; <a href="/stats">Stats</a> &middot; <a href="/config">Settings</a></div>
+<div class="nav"><a href="/">Main</a><b>Timing</b><a href="/stats">Stats</a><a href="/config">Settings</a></div>
 <h1>Boomslang Timing</h1>
 <div id="banner" class="banner disarmed">loading...</div>
 <div id="channels"></div>

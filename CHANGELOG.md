@@ -5,6 +5,13 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Nav row on all four pages (Main/Timing/Stats/Settings) is now a 2x2
+  grid of button-styled blocks instead of an inline text row, with the
+  font size doubled for easier one-handed tapping. Main page's Battery
+  and FAULT line readouts moved onto a single row to make room.
+
 ### Added
 
 - Per-channel PWM cycling during a fire pulse (`channelPwmHz`/

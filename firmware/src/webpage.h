@@ -23,8 +23,10 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   body { font-family: -apple-system, sans-serif; background:#111; color:#eee; margin:0; padding:12px; font-size:17px; }
   h1 { font-size:1.5em; margin:0 0 8px; }
   a { color:#8ab4ff; }
-  .nav { font-size:0.9em; text-align:center; margin-bottom:10px; }
-  .nav b { color:#eee; }
+  .nav { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; font-size:1.8em; }
+  .nav a, .nav b { display:block; text-align:center; padding:10px; border-radius:10px; text-decoration:none; font-weight:700; }
+  .nav a { background:#1c1c1c; color:#8ab4ff; }
+  .nav b { background:#333; color:#eee; }
   .banner { padding:14px; border-radius:10px; margin-bottom:12px; font-weight:700; text-align:center; font-size:1.05em; }
   .disarmed { background:#4d3b1b; color:#ffdca6; }
   .countdown { background:#4d4a1b; color:#fff3a6; }
@@ -47,18 +49,21 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .abort-btn { background:#c9821a; color:#fff; }
   .abort-btn:disabled { background:#444; color:#888; }
   .panic-btn { background:#7a0000; color:#fff; }
-  .battery { font-size:0.9em; color:#999; margin:-4px 0 12px; text-align:center; }
+  .statusrow { display:flex; justify-content:space-between; margin:-4px 0 12px; font-size:0.9em; }
+  .battery { color:#999; }
   .battery.low { color:#ff9e5e; font-weight:700; }
-  .faultline { font-size:0.9em; color:#999; margin:-8px 0 12px; text-align:center; }
+  .faultline { color:#999; }
   .faultline.active { color:#ff6b6b; font-weight:700; }
 </style>
 </head>
 <body>
-<div class="nav"><b>Main</b> &middot; <a href="/timing">Timing</a> &middot; <a href="/stats">Stats</a> &middot; <a href="/config">Settings</a></div>
+<div class="nav"><b>Main</b><a href="/timing">Timing</a><a href="/stats">Stats</a><a href="/config">Settings</a></div>
 <h1>Boomslang</h1>
 <div id="banner" class="banner disarmed">loading...</div>
-<p class="battery" id="battery">Battery: -- V</p>
-<p class="faultline" id="faultline">FAULT line: --</p>
+<div class="statusrow">
+  <span class="battery" id="battery">Battery: -- V</span>
+  <span class="faultline" id="faultline">FAULT line: --</span>
+</div>
 <div id="channels"></div>
 <button class="trigger-btn" id="triggerBtn" disabled onclick="doTrigger()">TRIGGER</button>
 <div class="stop-row">
