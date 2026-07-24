@@ -37,6 +37,7 @@ void loadSettings() {
   }
   settings.armCountdownSec = prefs.getUInt("armCountdown", settings.armCountdownSec);
   settings.armTimeoutSec = prefs.getUInt("armTimeout", settings.armTimeoutSec);
+  settings.browserWatchdogSec = prefs.getUInt("browserWD", settings.browserWatchdogSec);
   settings.visibleWhenArmed = prefs.getBool("visibleArmed", settings.visibleWhenArmed);
   settings.audibleWhenArmed = prefs.getBool("audibleArmed", settings.audibleWhenArmed);
   settings.speakerVolume = prefs.getUInt("spkVolume", settings.speakerVolume);
@@ -80,6 +81,7 @@ bool saveSettings() {
   }
   prefs.putUInt("armCountdown", settings.armCountdownSec);
   prefs.putUInt("armTimeout", settings.armTimeoutSec);
+  prefs.putUInt("browserWD", settings.browserWatchdogSec);
   prefs.putBool("visibleArmed", settings.visibleWhenArmed);
   prefs.putBool("audibleArmed", settings.audibleWhenArmed);
   prefs.putUInt("spkVolume", settings.speakerVolume);

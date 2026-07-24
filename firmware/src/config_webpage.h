@@ -54,6 +54,8 @@ const char CONFIG_HTML[] PROGMEM = R"rawliteral(
   <label>Countdown before firing is permitted (s) <input type="number" id="countdown" step="1" min="0" max="600"></label>
   <label>Auto-lockout after this long in READY (s, 0=never) <input type="number" id="armTimeout" step="1" min="0" max="3600"></label>
   <div class="hint">If READY is held this long — armed but never triggered, or nothing selected — TRIGGER is refused until a fresh disarm+rearm, even if the arm switch (J5) is still physically closed. Does not touch the switch itself or the buzzer/strobe pattern; it only blocks firing. 0 disables this (matches prior behavior).</div>
+  <label>Browser watchdog (s, 0=off) <input type="number" id="browserWatchdog" step="1" min="0" max="600"></label>
+  <div class="hint">If armed and no browser polls this device for this long — phone out of range, tab closed, battery died — an unconditional PANIC is issued: anything firing stops immediately and a fresh disarm+rearm is required. The clock starts when the arm switch closes and resets on every poll from any page. 0 disables this. Valid range 5-600s when enabled.</div>
   <div class="checkrow"><span>Visible flash when armed</span><input type="checkbox" id="visibleArmed"></div>
   <div class="checkrow"><span>Audible alarm when armed</span><input type="checkbox" id="audibleArmed"></div>
   <label>Buzzer volume (0-10) <input type="number" id="speakerVolume" step="1" min="0" max="10"></label>
@@ -116,6 +118,7 @@ async function loadConfig() {
   document.getElementById('r2').value = c.sense_ohms[2];
   document.getElementById('countdown').value = c.arm_countdown_s;
   document.getElementById('armTimeout').value = c.arm_timeout_s;
+  document.getElementById('browserWatchdog').value = c.browser_watchdog_s;
   document.getElementById('visibleArmed').checked = c.visible_when_armed;
   document.getElementById('audibleArmed').checked = c.audible_when_armed;
   document.getElementById('speakerVolume').value = c.speaker_volume;
@@ -135,6 +138,7 @@ async function save() {
   const r2 = document.getElementById('r2').value;
   const countdown = document.getElementById('countdown').value;
   const armTimeout = document.getElementById('armTimeout').value;
+  const browserWatchdog = document.getElementById('browserWatchdog').value;
   const visible = document.getElementById('visibleArmed').checked ? '1' : '0';
   const audible = document.getElementById('audibleArmed').checked ? '1' : '0';
   const speakerVolume = document.getElementById('speakerVolume').value;
@@ -150,7 +154,8 @@ async function save() {
   const wifiRelayConfirm = encodeURIComponent(document.getElementById('wifiRelayConfirm').value);
   const resp = await fetch(
     `/config?sense_ohm0=${r0}&sense_ohm1=${r1}&sense_ohm2=${r2}` +
-    `&arm_countdown_s=${countdown}&arm_timeout_s=${armTimeout}&visible_when_armed=${visible}` +
+    `&arm_countdown_s=${countdown}&arm_timeout_s=${armTimeout}&browser_watchdog_s=${browserWatchdog}` +
+    `&visible_when_armed=${visible}` +
     `&audible_when_armed=${audible}&speaker_volume=${speakerVolume}&require_rearm=${reqRearm}` +
     `&check_continuity_on_arm=${contOnArm}&check_continuity_before_trigger=${contBeforeTrig}` +
     `&low_battery_threshold_v=${lowBattV}&low_voltage_lockout_enabled=${lvLockout}` +

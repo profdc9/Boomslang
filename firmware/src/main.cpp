@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "soc/gpio_reg.h"
@@ -76,6 +77,35 @@ bool armContinuityError = false;
 float batteryVoltage = 0.0f;
 bool channelContinuityCached[NUM_CHANNELS] = {false, false, false};
 int slowSampleStep = 0;  // 0 = battery, 1..NUM_CHANNELS = that channel's continuity
+
+// True if setup() actually ended up running as a WiFi station (relay mode
+// requested and the connection succeeded) rather than hosting its own AP
+// (the default, or relay mode's fallback on a failed connection) — set
+// once in setup(), read in loop() to decide which RSSI API applies. Not
+// the same thing as settings.wifiStationMode, which only reflects what
+// was requested, not what's actually running.
+bool wifiRunningAsStation = false;
+
+// WiFi signal strength, checked roughly once a second (see loop() — a
+// plain timer, independent of the ADC round-robin above, since this is a
+// different subsystem with its own, much lower, overhead and doesn't need
+// to share that budget). wifiRssiValid is deliberately false rather than
+// showing a number that could be wrong: in AP mode, RSSI is only reported
+// when exactly one station is connected — with zero or more than one
+// connected, there's no single unambiguous "how's our link" answer, so
+// the UI shows "NA" rather than guessing which one matters.
+bool wifiRssiValid = false;
+int wifiRssiDbm = 0;
+
+// Browser watchdog (settings.browserWatchdogSec): updated to millis() by
+// handleStatus() every time any page polls /status.json. loop() resets it
+// continuously while DISARMED, so the clock only ever starts counting from
+// the moment the arm switch actually closes ("since the arming cycle
+// started"), and a poll from any page keeps resetting it while armed.
+// browserWatchdogTripped guards against re-issuing the panic action every
+// iteration once the threshold is crossed, and resets alongside the timer.
+uint32_t lastStatusPollAtMs = 0;
+bool browserWatchdogTripped = false;
 
 // True from an accepted /trigger until every scheduled channel has either
 // fired (and its pulse ended) or been skipped. Blocks a second /trigger
@@ -355,6 +385,8 @@ void buildStatusJson(String &out) {
   out += (batteryVoltage < settings.lowBatteryThresholdV ? "true" : "false");
   out += ",\"low_voltage_blocking_arm\":";
   out += (lowVoltageBlockingArm() ? "true" : "false");
+  out += ",\"wifi_rssi_dbm\":";
+  out += (wifiRssiValid ? String(wifiRssiDbm) : "null");
   out += ",\"fault\":";
   out += (faultLatched ? "true" : "false");
   out += ",\"fault_pin_active\":";
@@ -402,6 +434,11 @@ void handleRoot() {
 }
 
 void handleStatus() {
+  // Browser watchdog heartbeat (settings.browserWatchdogSec) — every page
+  // polls this endpoint every 500ms while open, from any of the four
+  // pages, so this is the one shared "someone is actively watching" signal
+  // regardless of which page is on screen.
+  lastStatusPollAtMs = millis();
   String json;
   buildStatusJson(json);
   server.send(200, "application/json", json);
@@ -661,6 +698,8 @@ void handleConfigGet() {
   out += settings.armCountdownSec;
   out += ",\"arm_timeout_s\":";
   out += settings.armTimeoutSec;
+  out += ",\"browser_watchdog_s\":";
+  out += settings.browserWatchdogSec;
   out += ",\"visible_when_armed\":";
   out += (settings.visibleWhenArmed ? "true" : "false");
   out += ",\"audible_when_armed\":";
@@ -721,6 +760,17 @@ void handleConfigPost() {
   long armTimeout = server.arg("arm_timeout_s").toInt();
   if (armTimeout < 0 || armTimeout > 3600) {
     server.send(400, "application/json", "{\"ok\":false,\"error\":\"arm_timeout_s out of range (0-3600)\"}");
+    return;
+  }
+
+  if (!server.hasArg("browser_watchdog_s")) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"missing browser_watchdog_s\"}");
+    return;
+  }
+  long browserWatchdog = server.arg("browser_watchdog_s").toInt();
+  if (browserWatchdog != 0 && (browserWatchdog < 5 || browserWatchdog > 600)) {
+    server.send(400, "application/json",
+                "{\"ok\":false,\"error\":\"browser_watchdog_s out of range (0, or 5-600)\"}");
     return;
   }
 
@@ -793,6 +843,7 @@ void handleConfigPost() {
   for (int i = 0; i < NUM_CHANNELS; i++) settings.senseOhms[i] = newSenseOhms[i];
   settings.armCountdownSec = (uint32_t)countdown;
   settings.armTimeoutSec = (uint32_t)armTimeout;
+  settings.browserWatchdogSec = (uint32_t)browserWatchdog;
   settings.visibleWhenArmed = visible;
   settings.audibleWhenArmed = audible;
   settings.speakerVolume = (uint32_t)speakerVolume;
@@ -898,7 +949,6 @@ void setup() {
 
   WiFi.persistent(false);  // avoid NVS flash writes for WiFi config while the board may be armed
 
-  bool staConnected = false;
   if (settings.wifiStationMode) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(settings.wifiSsid, settings.wifiPassword);
@@ -911,8 +961,8 @@ void setup() {
       Serial.print(".");
     }
     Serial.println();
-    staConnected = (WiFi.status() == WL_CONNECTED);
-    if (staConnected) {
+    wifiRunningAsStation = (WiFi.status() == WL_CONNECTED);
+    if (wifiRunningAsStation) {
       Serial.print("[wifi] connected, browse to http://");
       Serial.println(WiFi.localIP());
     } else {
@@ -920,7 +970,7 @@ void setup() {
     }
   }
 
-  if (!staConnected) {
+  if (!wifiRunningAsStation) {
     WiFi.mode(WIFI_AP);
     WiFi.softAP(settings.wifiSsid, settings.wifiPassword);
     Serial.print("[wifi] AP \"");
@@ -984,6 +1034,45 @@ void loop() {
   updateArmState(batteryVoltage);
 
   uint32_t now = millis();
+
+  // WiFi signal strength, once a second — a plain timer, independent of
+  // the ADC round-robin above (different subsystem, doesn't share that
+  // budget, and doesn't need per-iteration freshness either). See
+  // wifiRssiValid's comment for why AP mode reports "invalid" rather than
+  // a possibly-wrong number when there isn't exactly one connected
+  // station.
+  static uint32_t lastWifiRssiCheckMs = 0;
+  if (now - lastWifiRssiCheckMs >= 1000) {
+    lastWifiRssiCheckMs = now;
+    if (wifiRunningAsStation) {
+      wifiRssiValid = (WiFi.status() == WL_CONNECTED);
+      if (wifiRssiValid) wifiRssiDbm = WiFi.RSSI();
+    } else {
+      wifi_sta_list_t staList;
+      wifiRssiValid = (esp_wifi_ap_get_sta_list(&staList) == ESP_OK && staList.num == 1);
+      if (wifiRssiValid) wifiRssiDbm = staList.sta[0].rssi;
+    }
+  }
+
+  // Browser watchdog (settings.browserWatchdogSec, see PANIC and ABORT
+  // buttons above): while DISARMED, keep resetting the clock — this means
+  // it only ever starts counting from the moment the arm switch actually
+  // closes. While armed, if no /status.json poll has landed within the
+  // configured window, treat it exactly like the PANIC button: stop
+  // anything firing and require a fresh disarm+rearm, unconditionally.
+  // browserWatchdogTripped keeps this a one-shot action per arm cycle
+  // rather than repeating every iteration while the poll gap persists.
+  if (getArmState() == ArmState::DISARMED) {
+    lastStatusPollAtMs = now;
+    browserWatchdogTripped = false;
+  } else if (!browserWatchdogTripped && settings.browserWatchdogSec > 0 &&
+             (now - lastStatusPollAtMs) >= settings.browserWatchdogSec * 1000UL) {
+    stopSequence();
+    notifyPanicPressed();
+    browserWatchdogTripped = true;
+    Serial.printf("[panic] browser watchdog timeout (%lus) - no /status.json poll received\n",
+                  (unsigned long)settings.browserWatchdogSec);
+  }
 
 #if DEBUG_LOOP_RATE
   static uint32_t loopIterCount = 0;

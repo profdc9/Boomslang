@@ -52,6 +52,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
   .statusrow { display:flex; justify-content:space-between; margin:-4px 0 12px; font-size:0.9em; }
   .battery { color:#999; }
   .battery.low { color:#ff9e5e; font-weight:700; }
+  .wifirssi { color:#999; }
+  .wifirssi.weak { background:#7a0000; color:#fff; font-weight:700; padding:2px 8px; border-radius:6px; }
   .faultline { color:#999; }
   .faultline.active { color:#ff6b6b; font-weight:700; }
 </style>
@@ -62,6 +64,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <div id="banner" class="banner disarmed">loading...</div>
 <div class="statusrow">
   <span class="battery" id="battery">Battery: -- V</span>
+  <span class="wifirssi" id="wifirssi">WiFi: --</span>
   <span class="faultline" id="faultline">FAULT line: --</span>
 </div>
 <div id="channels"></div>
@@ -96,6 +99,14 @@ async function refresh() {
     ? `Battery: ${r.battery_v.toFixed(1)} V — LOW BATTERY`
     : `Battery: ${r.battery_v.toFixed(1)} V`;
   batteryEl.className = 'battery' + (r.low_battery ? ' low' : '');
+
+  // wifi_rssi_dbm is null whenever there isn't exactly one unambiguous
+  // signal to report (AP mode with zero or more than one station
+  // connected) — shown as "NA" rather than guessing which one matters.
+  const wifiEl = document.getElementById('wifirssi');
+  wifiEl.textContent = 'WiFi: ' + (r.wifi_rssi_dbm === null ? 'NA' : `${r.wifi_rssi_dbm} dBm`);
+  const wifiWeak = r.wifi_rssi_dbm !== null && r.wifi_rssi_dbm <= -70;
+  wifiEl.className = 'wifirssi' + (wifiWeak ? ' weak' : '');
 
   // Live raw state of the shared hardware FAULT line, independent of
   // r.fault (which is the latched flag, only cleared automatically once

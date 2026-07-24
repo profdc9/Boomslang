@@ -28,6 +28,19 @@ struct Settings {
   // away" rather than any electrical fault.
   uint32_t armTimeoutSec = 600;
 
+  // Seconds allowed, while armed (COUNTDOWN or READY), without a
+  // /status.json poll from a browser before an unconditional panic is
+  // issued — same action as the PANIC button (stopSequence() +
+  // notifyPanicPressed()): stops anything firing and requires a fresh
+  // disarm+rearm, regardless of requireRearmAfterFire. Guards against the
+  // operator's browser/phone losing contact (out of range, tab closed,
+  // battery died) while the device is armed with no one actively watching
+  // it. The clock starts fresh at the moment the arm switch closes and
+  // resets on every poll, from any page — so it covers both "never polled
+  // since arming" and "was polling, then stopped." 0 disables this
+  // (matches prior behavior — no such check). Valid range 5-600s.
+  uint32_t browserWatchdogSec = 60;
+
   // Whether the onboard strobe LEDs / buzzer indicate armed state at all.
   // Both default on to match common range-safety practice.
   bool visibleWhenArmed = true;
