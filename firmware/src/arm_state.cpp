@@ -83,31 +83,23 @@ bool sampleRawArmed() {
   return analogRead(PIN_SENSE_FAILSAFE) > FAILSAFE_OK_RAW;
 }
 
-// Independent read of PIN_BATTERY, mirroring main.cpp's readBatteryVoltage()
-// — this module already senses SENSEFAILSAFE on its own rather than relying
-// on main.cpp's rolling variables, so this follows the same self-contained
-// pattern. Must include the same BATTERY_DIODE_DROP_V correction — this is
-// the reading the low-voltage lockout actually compares against the
-// threshold, and it needs to agree with the battery_v shown in the UI, or
-// the lockout can trip (or fail to) at a voltage that doesn't match what
-// the displayed reading and threshold would suggest.
-float sampleBatteryVoltage() {
-  float v = (analogRead(PIN_BATTERY) / (float)ADC_MAX) * ADC_VREF;
-  return v * BATTERY_DIVIDER_RATIO + BATTERY_DIODE_DROP_V;
-}
-
 // Call once per updateArmState() — debounces and applies hysteresis to the
 // raw battery_v-vs-threshold comparison, so a fire-pulse sag or boundary
 // noise doesn't flap the lockout the way a single instantaneous sample
 // would. Same debounce shape as sampleRawArmed()/debouncedArmed above.
-bool computeLowVoltageLockout(uint32_t now) {
+// batteryVoltage is passed in from main.cpp (see updateArmState()) rather
+// than sampled here — it's the same reading shown as battery_v in the UI,
+// which matters: the lockout needs to agree with the displayed value, or
+// it can trip (or fail to) at a voltage that doesn't match what the
+// display and threshold would suggest.
+bool computeLowVoltageLockout(uint32_t now, float batteryVoltage) {
   if (!settings.lowVoltageLockoutEnabled) {
     lowVRawPrev = false;
     lowVDebounced = false;
     return false;
   }
 
-  float v = sampleBatteryVoltage();
+  float v = batteryVoltage;
   // While already locked out, require clearing threshold + hysteresis
   // before the raw reading counts as "recovered".
   bool raw = lowVDebounced ? (v < settings.lowBatteryThresholdV + LOW_VOLTAGE_HYSTERESIS_V)
@@ -125,7 +117,7 @@ bool computeLowVoltageLockout(uint32_t now) {
 
 }  // namespace
 
-void updateArmState() {
+void updateArmState(float batteryVoltage) {
   uint32_t now = millis();
 
   bool rawArmed = sampleRawArmed();
@@ -137,7 +129,7 @@ void updateArmState() {
     debouncedArmed = rawArmed;
   }
 
-  bool lowV = computeLowVoltageLockout(now);
+  bool lowV = computeLowVoltageLockout(now, batteryVoltage);
 
   switch (state) {
     case ArmState::DISARMED:

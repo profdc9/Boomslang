@@ -72,6 +72,14 @@ constexpr float BATTERY_DIODE_DROP_V = 0.7f;
 // unconnected on the PCB.
 constexpr int PIN_DEBUG_TIMING = 13;
 
+// Logs loop() iterations/sec (and average iteration time) over Serial
+// once a second — added to measure the real achievable ceiling for
+// channelPwmHz, since loop() can't toggle a PWM-cycled pin faster than it
+// can complete one full pass (three analogRead() calls every iteration
+// for the live current display dominate that time — see readCurrentA()
+// callers). Set to 0 for a field build.
+#define DEBUG_LOOP_RATE 1
+
 // BENCH-DEBUG ONLY — normally onFaultISR() forces every TRIGGER pin high
 // the instant FAULT asserts, and loop() calls stopSequence() on the
 // transition into a latched fault, as a firmware-level echo of the

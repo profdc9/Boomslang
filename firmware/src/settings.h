@@ -58,8 +58,13 @@ struct Settings {
   // heating rate than a full-on pulse (e.g. slow-heating igniter/nichrome
   // element rather than an instant e-match). 0 disables PWM entirely —
   // the channel is simply on for the whole duration, as before. Valid
-  // range 1-1000Hz; doesn't need to be precise (see startFirePulse()/
-  // loop() in main.cpp), just an approximate average on-time. Default
+  // range 1-300Hz — this is a real, measured ceiling, not just "doesn't
+  // need to be precise": the toggle logic in loop() can't act faster than
+  // loop() itself iterates (bench-measured at ~3kHz on this build after
+  // WebServer::enableDelay(false); see main.cpp setup()), so requesting a
+  // period comparable to one loop() iteration collapses duty accuracy
+  // (1000Hz measured converging toward ~50% regardless of configured
+  // duty). 300Hz keeps duty tracking usable down to ~10% duty. Default
   // 10Hz so a sensible frequency is already set if duty is later lowered
   // below 100% (see channelPwmDutyPercent).
   uint32_t channelPwmHz[NUM_CHANNELS] = {10, 10, 10};

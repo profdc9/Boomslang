@@ -119,7 +119,7 @@ function buildChannels(r) {
         <span>duration (ms) <input type="number" id="dur${i}" step="100" min="0" max="30000" value="${c.duration_ms}" inputmode="numeric" onchange="saveDuration(${i})"></span>
       </div>
       <div class="ch-detail">
-        <span>PWM (Hz, 0=off) <input type="number" id="pwmHz${i}" step="1" min="0" max="1000" value="${c.pwm_hz}" inputmode="numeric" onchange="savePwmHz(${i})"></span>
+        <span>PWM (Hz, 0=off) <input type="number" id="pwmHz${i}" step="1" min="0" max="300" value="${c.pwm_hz}" inputmode="numeric" onchange="savePwmHz(${i})"></span>
         <span>PWM duty (%) <input type="number" id="pwmDuty${i}" step="5" min="0" max="100" value="${c.pwm_duty_percent}" inputmode="numeric" onchange="savePwmDuty(${i})"></span>
       </div>`;
     div.appendChild(el);

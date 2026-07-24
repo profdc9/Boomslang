@@ -11,7 +11,10 @@ enum class ArmState { DISARMED, COUNTDOWN, READY };
 
 // Call every loop() iteration. Debounces SENSEFAILSAFE, drives the
 // COUNTDOWN/READY transitions and the visible/audible indication pattern.
-void updateArmState();
+// batteryVoltage is passed in rather than sampled here — main.cpp already
+// reads PIN_BATTERY (round-robin with continuity, see loop()) and this
+// avoids a second independent analogRead() of the same pin every call.
+void updateArmState(float batteryVoltage);
 
 ArmState getArmState();
 

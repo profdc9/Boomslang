@@ -5,6 +5,47 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `channelPwmHz` at high frequencies produced a much higher actual duty
+  cycle than configured (e.g. 10% requested measured as ~50%): `loop()`
+  can't toggle a pin faster than it can complete one full iteration, and
+  the requested PWM period was comparable to or shorter than that. Traced
+  the iteration time itself to `WebServer::handleClient()`'s flat
+  `delay(1)` whenever no client is actively mid-request (`vTaskDelay()`-
+  backed, rounds up to at least one full 1ms FreeRTOS tick), which
+  single-handedly capped `loop()` at ~1kHz regardless of anything else in
+  it. Calling `server.enableDelay(false)` in `setup()` removed that floor,
+  raising the measured rate from ~1kHz to ~3kHz. `channelPwmHz`'s valid
+  range lowered from 0-1000Hz to 0-300Hz to match what's actually
+  achievable with usable duty accuracy at the new rate (down to ~10%
+  duty); default duty changed to 100% and default frequency to 10Hz, and
+  100%/0% duty are now special-cased to skip the toggle machinery
+  entirely (100% behaves as continuously on, 0% delivers no power) rather
+  than cycling pointlessly with a 0ms on- or off-phase.
+- Deduplicated `PIN_BATTERY` being read twice per `loop()` iteration —
+  once independently in `arm_state.cpp`'s low-voltage lockout decision,
+  once in `main.cpp` for the displayed `battery_v`. `updateArmState()` now
+  takes the reading as a parameter instead of sampling it a second time.
+- Added round-robin sampling for battery voltage and each channel's
+  continuity (`main.cpp`'s `loop()`, `slowSampleStep`): at most one of
+  these four `analogRead()` calls happens per iteration, cycling through
+  the rest, instead of all four every time. None of them need
+  per-iteration freshness (the low-voltage lockout already debounces over
+  2s; the arm-time continuity monitor is already self-clearing/best-
+  effort) — this was found while investigating the PWM timing issue
+  above, since `analogRead()` itself carries real overhead (the ESP-IDF
+  driver power-cycles the whole ADC peripheral and takes an internal lock
+  on every call), and `loop()` was doing up to 9 of these calls per
+  iteration in the fully-armed-and-monitoring case. Safety-relevant
+  continuity re-checks (PWM re-toggle, scheduled-fire pass) are
+  unaffected — they still call `hasContinuity()` directly for a fresh
+  read, never this cache.
+- Added a `DEBUG_LOOP_RATE` build flag (`config.h`, on by default) that
+  logs `loop()`'s actual iterations/sec over Serial once a second — added
+  to measure the real numbers behind the fixes above; harmless to leave
+  on.
+
 ## [0.1.6] - 2026-07-23
 
 ### Changed

@@ -60,11 +60,22 @@ ChannelState channels[NUM_CHANNELS];
 // Live (non-latching) result of the arm-time continuity monitor: true if
 // settings.checkContinuityOnArm is on, the device is armed, and at least
 // one selected channel currently lacks continuity. Recomputed every loop()
-// iteration, so it clears itself the instant the problem is fixed.
+// iteration (from channelContinuityCached, not a fresh read — see below),
+// so it clears itself the instant the problem is fixed.
 bool armContinuityError = false;
 
-// Rolling battery/supply voltage reading, refreshed each loop() iteration.
+// Rolling battery/supply voltage reading. Refreshed round-robin with each
+// channel's continuity (see loop()'s slowSampleStep) — at most one of these
+// four analogRead()s happens per iteration, rather than all four every
+// time. None of them need per-iteration freshness: the low-voltage lockout
+// already debounces over 2s, and the arm-time continuity monitor is
+// explicitly self-clearing/best-effort. This is the informational/display
+// path only — the safety-relevant continuity re-checks at each channel's
+// actual fire moment (scheduled-fire pass, PWM re-toggle) call
+// hasContinuity() directly for a fresh read, not this cache.
 float batteryVoltage = 0.0f;
+bool channelContinuityCached[NUM_CHANNELS] = {false, false, false};
+int slowSampleStep = 0;  // 0 = battery, 1..NUM_CHANNELS = that channel's continuity
 
 // True from an accepted /trigger until every scheduled channel has either
 // fired (and its pulse ended) or been skipped. Blocks a second /trigger
@@ -587,8 +598,8 @@ void handleChannelPwmHz() {
     return;
   }
   long pwmHz = server.arg("pwm_hz").toInt();
-  if (pwmHz < 0 || pwmHz > 1000) {
-    server.send(400, "application/json", "{\"ok\":false,\"error\":\"pwm_hz out of range (0-1000)\"}");
+  if (pwmHz < 0 || pwmHz > 300) {
+    server.send(400, "application/json", "{\"ok\":false,\"error\":\"pwm_hz out of range (0-300)\"}");
     return;
   }
 
@@ -942,15 +953,49 @@ void setup() {
   server.on("/config.json", HTTP_GET, handleConfigGet);
   server.on("/config", HTTP_POST, handleConfigPost);
   server.on("/config/reset", HTTP_POST, handleConfigReset);
+  // WebServer::handleClient() otherwise calls a flat delay(1) whenever no
+  // client is actively mid-request (i.e. most of the time) — on ESP32
+  // Arduino that's vTaskDelay()-backed and rounds up to at least one full
+  // FreeRTOS tick (1ms, CONFIG_FREERTOS_HZ=1000 on this build), which
+  // single-handedly capped loop() at ~1kHz regardless of everything else
+  // in it. Disabling it removes that artificial floor entirely.
+  server.enableDelay(false);
   server.begin();
 }
 
 void loop() {
   server.handleClient();
   setSequenceActive(sequenceActive);
-  updateArmState();
+
+  // Round-robin: at most one of {battery, channel 1 continuity, channel 2
+  // continuity, channel 3 continuity} gets a fresh analogRead() this
+  // iteration, cycling through the rest. See channelContinuityCached's
+  // comment for why none of these need per-iteration freshness. Done
+  // before updateArmState() so it gets this iteration's value (freshly
+  // sampled or still-cached) either way.
+  if (slowSampleStep == 0) {
+    batteryVoltage = readBatteryVoltage();
+  } else {
+    int ch = slowSampleStep - 1;
+    channelContinuityCached[ch] = hasContinuity(ch);
+  }
+  slowSampleStep = (slowSampleStep + 1) % (NUM_CHANNELS + 1);
+
+  updateArmState(batteryVoltage);
 
   uint32_t now = millis();
+
+#if DEBUG_LOOP_RATE
+  static uint32_t loopIterCount = 0;
+  static uint32_t lastLoopRateReportMs = 0;
+  loopIterCount++;
+  if (now - lastLoopRateReportMs >= 1000) {
+    Serial.printf("[diag] loop() rate: %lu Hz (%.1f us/iteration avg)\n",
+                  (unsigned long)loopIterCount, 1000000.0f / loopIterCount);
+    loopIterCount = 0;
+    lastLoopRateReportMs = now;
+  }
+#endif
 
   for (int i = 0; i < NUM_CHANNELS; i++) {
     // Rolling current reading for the UI; reads ~0 when idle since the
@@ -1012,8 +1057,6 @@ void loop() {
     }
   }
 
-  batteryVoltage = readBatteryVoltage();
-
   // Scheduled-fire pass for the current trigger sequence (if any).
   for (int i = 0; i < NUM_CHANNELS; i++) {
     if (!channels[i].scheduled) continue;
@@ -1044,11 +1087,14 @@ void loop() {
   // iteration, not latched — clears itself the instant the problem is fixed
   // or the setting is turned off. Only meaningful while armed; the arm
   // state machine's own COUNTDOWN->READY progression is unaffected by this,
-  // it only gates triggering.
+  // it only gates triggering. Uses channelContinuityCached (round-robin
+  // sampled, up to NUM_CHANNELS iterations stale) rather than a fresh
+  // hasContinuity() call — this monitor is explicitly best-effort/
+  // self-clearing already, so that staleness is immaterial in practice.
   armContinuityError = false;
   if (settings.checkContinuityOnArm && getArmState() != ArmState::DISARMED) {
     for (int i = 0; i < NUM_CHANNELS; i++) {
-      if (channels[i].selected && !hasContinuity(i)) {
+      if (channels[i].selected && !channelContinuityCached[i]) {
         armContinuityError = true;
         break;
       }

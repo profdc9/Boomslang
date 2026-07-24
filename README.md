@@ -408,14 +408,33 @@ channel): instead of being continuously on for the whole duration, a
 channel can instead cycle on/off within that same duration window — for a
 lower average heating rate than a full-on pulse (e.g. slow-heating
 nichrome/resistive element rather than an instant e-match). `channelPwmHz`
-(0-1000Hz, default **10Hz**, `0` disables PWM — continuously on for the
+(0-300Hz, default **10Hz**, `0` disables PWM — continuously on for the
 whole duration, exactly as before) sets the cycle rate; `channelPwmDutyPercent`
 (0-100%, default **100%**) sets how much of each cycle is on. 100% duty
 (the default) is treated the same as PWM being disabled — continuously on,
 no cycling — so a fresh board fires exactly as it always did until duty is
 deliberately lowered; 0% duty delivers no power at all for the whole
-duration. The rate doesn't need to be precise — it's a plain software timer
-in `loop()`, not hardware PWM — just an approximate average on-time.
+duration. This is a plain software timer in `loop()`, not hardware PWM.
+
+**300Hz is a real, bench-measured ceiling, not just "doesn't need to be
+precise."** The toggle logic can't act faster than `loop()` itself
+iterates: at a PWM period comparable to one `loop()` iteration, both the
+on-phase and off-phase end up bottlenecked by the same iteration time
+instead of the requested durations, and duty accuracy collapses — 1000Hz
+was measured converging toward ~50% regardless of configured duty,
+regardless of how fast `loop()` was made to run. `loop()`'s own rate was
+itself a real bottleneck worth fixing along the way: `WebServer::
+handleClient()` calls a flat `delay(1)` whenever no HTTP client is
+actively mid-request (i.e. most of the time), which is `vTaskDelay()`-
+backed and rounds up to at least one full FreeRTOS tick (1ms, this
+project's `CONFIG_FREERTOS_HZ=1000`) — capping `loop()` at ~1kHz
+regardless of how much other per-iteration work was reduced. `main.cpp`'s
+`setup()` now calls `server.enableDelay(false)` to remove that floor,
+which alone raised the measured rate from ~1kHz to ~3kHz. At that rate,
+300Hz (30 iterations/period) keeps duty tracking usable down to about 10%
+duty; a `DEBUG_LOOP_RATE` build flag (`config.h`, on by default) logs the
+actual measured rate over Serial once a second if this ever needs
+re-checking on different hardware.
 
 **Every PWM edge gets the same protection as a single trigger-on event**:
 each on/off transition, not just the first, goes through
@@ -539,6 +558,24 @@ is also locked while armed (the `/select` endpoint refuses changes), since
 the set of channels being monitored can't shift out from under a live check
 — disarm to change which channels are selected.
 
+This monitor reads `channelContinuityCached` rather than sampling fresh
+every `loop()` iteration — `main.cpp`'s `loop()` round-robins one
+`analogRead()` per iteration across battery voltage and each channel's
+continuity (`slowSampleStep`, cycling through `NUM_CHANNELS + 1` steps)
+instead of sampling all four every time, so each value is at most a few
+iterations stale (comfortably fast relative to what actually reacts to
+them — this monitor is already explicitly best-effort/self-clearing, and
+the low-voltage lockout below already debounces over 2 seconds). This was
+one of several fixes to a real, measured bottleneck: each `analogRead()`
+call was found to carry real, non-trivial overhead (the underlying
+ESP-IDF driver power-cycles the whole ADC peripheral and takes an internal
+lock on every call), and `loop()` was doing up to 9 of them per iteration
+in the fully-armed-and-monitoring case. The pre-trigger check and the
+per-channel fire-time recheck below both still call `hasContinuity()`
+directly for a fresh, uncached read — this round-robin cache is only used
+for the informational background monitor, never for a safety-relevant
+check made right before actually energizing a channel.
+
 **Pre-trigger continuity check** (`checkContinuityBeforeTrigger`, settings
 page, default **on**): at the instant TRIGGER is pressed, re-verifies
 continuity for every selected channel. If any fail, *nothing* fires, the
@@ -565,14 +602,18 @@ adjustable) so `battery_v` reflects true battery voltage, not the
 diode-reduced rail. The reading is shown on the main control page as
 `battery_v`.
 
-`arm_state.cpp`'s `sampleBatteryVoltage()` — a separate, independent
-reading of `PIN_BATTERY` used specifically for the low-voltage lockout
-decision below — applies the same `BATTERY_DIODE_DROP_V` correction. The
-two readings need to agree: without it, the lockout was comparing an
-uncorrected (0.7V-low) value against the threshold while the banner showed
-the corrected `battery_v`, so the displayed voltage in a "Cannot arm —
-battery too low" message could be well above the threshold it had
-supposedly tripped.
+The low-voltage lockout decision (below) uses this exact same reading —
+`updateArmState()` takes `battery_v` as a parameter rather than sampling
+`PIN_BATTERY` a second time independently, which it originally did. The
+two readings need to agree: they briefly didn't (a since-fixed bug), and
+the lockout could compare an uncorrected value against the threshold while
+the banner showed the corrected `battery_v`, so the displayed voltage in a
+"Cannot arm — battery too low" message could be well above the threshold
+it had supposedly tripped. Sharing one reading both fixes that class of
+bug structurally (there's only one value to ever disagree with itself) and
+avoids a redundant `analogRead()` every `loop()` iteration — see the
+round-robin sampling note under Continuity checks below, which this same
+mechanism also covers.
 
 **Low-battery warning:** below `lowBatteryThresholdV` (settings page,
 default **11.5V**), the battery readout on the control page turns orange and
