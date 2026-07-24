@@ -5,6 +5,8 @@ All notable changes to this project are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-07-24
+
 ### Fixed
 
 - `channelPwmHz` at high frequencies produced a much higher actual duty
